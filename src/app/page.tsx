@@ -1,69 +1,106 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Users, Link2, ShieldCheck } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { SignalMotif } from "@/components/SignalMotif";
+import { BrandMark } from "@/components/BrandMark";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-bg">
+      <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+        <div className="flex items-center gap-2">
+          <BrandMark size={22} />
+          <span className="font-display text-lg font-semibold">Veyra</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          <Link
+            href="/login"
+            className="hidden rounded-lg px-4 py-2 text-sm font-semibold text-ink transition-colors hover:text-accent sm:inline-block"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            Log in
+          </Link>
+          <Link
+            href="/signup"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
-            Documentation
-          </a>
+            Register
+          </Link>
         </div>
+      </header>
+
+      <main>
+        <section className="relative overflow-hidden">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-6 py-16 sm:px-10 md:grid-cols-2 md:py-24">
+            <div className="relative z-10">
+              <h1 className="font-display text-4xl font-semibold leading-tight sm:text-5xl">
+                Meetings that just work, for every seat at the table.
+              </h1>
+              <p className="mt-4 max-w-md text-base text-muted sm:text-lg">
+                Create a room in seconds, share a link, and bring your whole team
+                in — no downloads, no friction.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+              </div>
+            </div>
+
+            <div className="relative hidden aspect-square overflow-hidden rounded-2xl border border-edge bg-surface2 md:block dark:border-transparent dark:bg-[#0F1115]">
+              <div className="absolute inset-0 opacity-70">
+                <SignalMotif />
+              </div>
+              <div className="absolute bottom-6 left-6 right-6 text-ink/70 dark:text-white/70">
+                <p className="text-sm">
+                  Host, present, and talk with your team in real time.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-edge bg-surface">
+          <div className="mx-auto max-w-6xl px-6 py-14 sm:px-10">
+            <div className="grid gap-8 sm:grid-cols-3">
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
+                  <Link2 size={18} className="text-accent" />
+                </div>
+                <h3 className="mt-4 font-display text-base font-semibold">
+                  One link, instant room
+                </h3>
+                <p className="mt-1 text-sm text-muted">
+                  Create a meeting and share a single link — no setup required.
+                </p>
+              </div>
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent2/10">
+                  <Users size={18} className="text-accent2" />
+                </div>
+                <h3 className="mt-4 font-display text-base font-semibold">
+                  Built for teams
+                </h3>
+                <p className="mt-1 text-sm text-muted">
+                  Bring as many participants as you need into one room.
+                </p>
+              </div>
+              <div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
+                  <ShieldCheck size={18} className="text-accent" />
+                </div>
+                <h3 className="mt-4 font-display text-base font-semibold">
+                  Secure by default
+                </h3>
+                <p className="mt-1 text-sm text-muted">
+                  Every room is private to the people you invite.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
+
+      <footer className="border-t border-edge px-6 py-8 text-center text-xs text-muted/70 sm:px-10">
+        © 2026 Veyra. Built for teams that meet often.
+      </footer>
     </div>
   );
 }

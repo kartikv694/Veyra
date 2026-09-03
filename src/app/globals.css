@@ -1,26 +1,44 @@
 @import "tailwindcss";
 
+/* Task 1: class-based dark mode (toggle-driven, not just OS preference) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #F7F8FA;
+  --surface: #FFFFFF;
+  --surface-2: #EEF0F4;
+  --text: #14171F;
+  --text-muted: #5B6172;
+  --accent: #4F5DFF;
+  --accent-2: #14B8A6;
+  --border: #E3E6EC;
+}
+
+.dark {
+  --bg: #0F1115;
+  --surface: #171A21;
+  --surface-2: #1E222B;
+  --text: #E7E9EE;
+  --text-muted: #9AA1B2;
+  --accent: #6C77FF;
+  --accent-2: #2DD4BF;
+  --border: #2A2E38;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent2: var(--accent-2);
+  --color-edge: var(--border);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
 }
