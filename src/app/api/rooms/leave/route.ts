@@ -1,5 +1,5 @@
 /**
- * POST /api/rooms/leave
+ * 
  *
  * Marks the caller as having left a meeting (`Participant.leftAt = now()`).
  *
@@ -42,6 +42,7 @@ const leaveSchema = z.object({
   token: z.string().min(1, "Room token is required"),
 });
 
+// POST /api/rooms/leave
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth) return unauthorized();

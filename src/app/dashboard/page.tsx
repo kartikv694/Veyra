@@ -3,45 +3,178 @@
 /**
  * /dashboard
  *
- * Landing screen after login: create a new meeting (host flow) or join one
- * by code (participant flow), plus a "Recent meetings" list. UI-only for
- * now — room creation generates a client-side placeholder token; see the
- * TODOs below for wiring to the live /api/rooms and /api/rooms/join
- * endpoints in Task 3.
+ * Landing screen after login: create a new meeting (host flow), join one
+ * by code (participant flow), and a "Recent meetings" list fetched from
+ * GET /api/rooms.
+ *
+ * Guarded on mount via `checkAuth()` — a direct/bookmarked visit with no
+ * valid session gets bounced to /login rather than rendering a page whose
+ * API calls would just fail with 401s.
+ *
+ * Also honors an "intent" the landing page may have set before sending
+ * someone here (?intent=create|join in the URL for an already-authenticated
+ * visitor, or stashed in localStorage if they had to log in first): arriving
+ * with intent=create auto-starts room creation; intent=join focuses the
+ * join-code field. Either way the intent is consumed once and not reapplied
+ * on a later visit.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, LogIn, Copy, Check, Users } from "lucide-react";
+import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BrandMark } from "@/components/BrandMark";
+import { checkAuth, clearSession, authHeaders, type SessionUser } from "@/lib/auth-client";
 
-function generateRoomId() {
-  const part = () => Math.random().toString(36).slice(2, 5);
-  return `${part()}-${part()}-${part()}`;
+const INTENT_STORAGE_KEY = "veyra_intent";
+
+interface MeetingSummary {
+  id: number;
+  token: string;
+  link: string;
+  createdAt: string;
+  endAt: string | null;
+  isHost: boolean;
+  participantCount: number;
+}
+
+/** Reads the intent set by the landing page, checking the URL first (the
+ *  already-authenticated path) and falling back to the stashed localStorage
+ *  value (the "had to log in first" path). Consumes it either way. */
+function consumeIntent(): "create" | "join" | null {
+  const fromUrl = new URLSearchParams(window.location.search).get("intent");
+  const fromStorage = window.localStorage.getItem(INTENT_STORAGE_KEY);
+  window.localStorage.removeItem(INTENT_STORAGE_KEY);
+  const intent = fromUrl ?? fromStorage;
+  return intent === "create" || intent === "join" ? intent : null;
+}
+
+function initials(user: SessionUser): string {
+  const source = user.name ?? user.email;
+  return source
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
   const [roomLink, setRoomLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
+  const joinInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCreateRoom = () => {
-    // TODO (Task 3): wire to POST /api/rooms — endpoint already live, see README
-    const id = generateRoomId();
-    setRoomLink(`https://veyra.app/room/${id}`);
-    setCopied(false);
+  const loadMeetings = async () => {
+    const res = await fetch("/api/rooms", { headers: authHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      setMeetings(data.meetings);
+    }
+  };
+
+  const handleCreateRoom = async () => {
+    setCreating(true);
+    try {
+      const res = await fetch("/api/rooms", { method: "POST", headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't create the meeting. Please try again.");
+        return;
+      }
+      setRoomLink(data.meeting.link);
+      setCopied(false);
+      toast.success("Meeting created — link ready to share.");
+      loadMeetings();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleCopy = async () => {
     if (!roomLink) return;
     await navigator.clipboard.writeText(roomLink);
     setCopied(true);
+    toast.success("Link copied.");
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO (Task 3): wire to POST /api/rooms/join — endpoint already live, see README
+    setJoining(true);
+    try {
+      const res = await fetch("/api/rooms/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ token: joinCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't join that meeting.");
+        return;
+      }
+      toast.success("Joined the meeting.");
+      router.push(`/room/${data.meeting.token}`);
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setJoining(false);
+    }
   };
+
+  const handleLogout = () => {
+    clearSession();
+    toast.info("Signed out.");
+    router.push("/");
+  };
+
+  // Auth guard + one-time intent handling, in that order: we don't act on
+  // an intent until we know the session is actually valid.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const authedUser = await checkAuth();
+      if (cancelled) return;
+
+      if (!authedUser) {
+        toast.error("Please sign in to continue.");
+        router.push("/login");
+        return;
+      }
+
+      setUser(authedUser);
+      setCheckingAuth(false);
+      await loadMeetings();
+
+      const intent = consumeIntent();
+      if (intent === "create") {
+        handleCreateRoom();
+      } else if (intent === "join") {
+        joinInputRef.current?.focus();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (checkingAuth || !user) {
+    // Deliberately minimal — this should only ever flash briefly while
+    // checkAuth() resolves.
+    return <div className="min-h-screen bg-bg" />;
+  }
 
   return (
     <div className="min-h-screen bg-bg">
@@ -52,14 +185,21 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-4">
           <ThemeToggle />
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-surface2 text-sm font-semibold">
-            AK
-          </div>
+          <button
+            onClick={handleLogout}
+            aria-label="Log out"
+            title="Log out"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface2 text-sm font-semibold transition-colors hover:bg-surface2/70"
+          >
+            {initials(user)}
+          </button>
         </div>
       </header>
 
       <main className="mx-auto max-w-4xl px-6 py-12 sm:px-10">
-        <h1 className="font-display text-2xl font-semibold">Good to see you</h1>
+        <h1 className="font-display text-2xl font-semibold">
+          Good to see you, {user.name ?? user.email}
+        </h1>
         <p className="mt-1 text-sm text-muted">Start a new meeting or join one with a code.</p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -73,9 +213,10 @@ export default function DashboardPage() {
             </p>
             <button
               onClick={handleCreateRoom}
-              className="mt-4 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              disabled={creating}
+              className="mt-4 w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
-              Create room
+              {creating ? "Creating..." : "Create room"}
             </button>
 
             {roomLink && (
@@ -96,6 +237,7 @@ export default function DashboardPage() {
             <p className="mt-1 text-sm text-muted">Enter a room code or paste a link.</p>
             <form onSubmit={handleJoin} className="mt-4 space-y-3">
               <input
+                ref={joinInputRef}
                 type="text"
                 required
                 value={joinCode}
@@ -105,9 +247,10 @@ export default function DashboardPage() {
               />
               <button
                 type="submit"
-                className="w-full rounded-lg border border-edge py-2.5 text-sm font-semibold transition-colors hover:border-accent hover:text-accent"
+                disabled={joining}
+                className="w-full rounded-lg border border-edge py-2.5 text-sm font-semibold transition-colors hover:border-accent hover:text-accent disabled:opacity-60"
               >
-                Join
+                {joining ? "Joining..." : "Join"}
               </button>
             </form>
           </div>
@@ -115,10 +258,35 @@ export default function DashboardPage() {
 
         <div className="mt-10">
           <h3 className="text-sm font-semibold text-muted">Recent meetings</h3>
-          <div className="mt-3 flex flex-col items-center justify-center rounded-xl border border-dashed border-edge py-12 text-center">
-            <Users size={22} className="text-muted" />
-            <p className="mt-2 text-sm text-muted">No meetings yet — create your first room above.</p>
-          </div>
+          {meetings.length === 0 ? (
+            <div className="mt-3 flex flex-col items-center justify-center rounded-xl border border-dashed border-edge py-12 text-center">
+              <Users size={22} className="text-muted" />
+              <p className="mt-2 text-sm text-muted">No meetings yet — create your first room above.</p>
+            </div>
+          ) : (
+            <ul className="mt-3 divide-y divide-edge rounded-xl border border-edge bg-surface">
+              {meetings.map((m) => (
+                <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{m.token}</p>
+                    <p className="text-muted">
+                      {m.isHost ? "You hosted" : "You joined"} · {m.participantCount} participant
+                      {m.participantCount === 1 ? "" : "s"}
+                      {m.endAt ? " · ended" : ""}
+                    </p>
+                  </div>
+                  {!m.endAt && (
+                    <button
+                      onClick={() => router.push(`/room/${m.token}`)}
+                      className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs font-semibold transition-colors hover:border-accent hover:text-accent"
+                    >
+                      Rejoin
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </main>
     </div>

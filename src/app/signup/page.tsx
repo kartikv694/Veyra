@@ -3,28 +3,71 @@
 /**
  * /signup
  *
- * Account creation screen — same split layout as /login. Submits to
- * POST /api/auth/signup once wired up (Task 3); currently a UI-only stub —
- * see the TODO in handleSubmit.
+ * Account creation screen — same split layout as /login.
+ *
+ * Wired to POST /api/auth/signup. Mirrors login's cross-redirect: if the
+ * email is already registered (409, reason "already_registered"), we toast
+ * it and send them to /login with the email pre-filled instead of leaving
+ * them stuck on a form they can't submit.
+ *
+ * If arrived at via a redirect from /login (unregistered email), the email
+ * query param pre-fills the field so they don't have to retype it.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Mail, Lock, User } from "lucide-react";
+import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SignalMotif } from "@/components/SignalMotif";
 import { BrandMark } from "@/components/BrandMark";
+import { saveSession } from "@/lib/auth-client";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Pick up ?email= from a /login redirect, without needing a Suspense
+  // boundary for useSearchParams — this is a one-off read on mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prefill = params.get("email");
+    if (prefill) setEmail(prefill);
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // TODO (Task 3): wire to POST /api/auth/signup — endpoint already live, see README
-    setTimeout(() => setLoading(false), 600);
+
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.reason === "already_registered") {
+          toast.error("That email's already registered — let's sign you in instead.");
+          router.push(`/login?email=${encodeURIComponent(email)}`);
+          return;
+        }
+        toast.error(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      saveSession(data.token, data.user);
+      toast.success(`Welcome to Veyra, ${data.user.name ?? data.user.email}.`);
+      router.push("/dashboard");
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

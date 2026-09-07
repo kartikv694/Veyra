@@ -12,13 +12,11 @@ a designated host. Built against the project SRS with a **12 September
 | Frontend       | Next.js 16 (App Router) + TypeScript     |
 | UI             | Tailwind CSS v4                          |
 | Backend/API    | Next.js Route Handlers (Node.js runtime) |
+| Real-time      | Socket.IO (signaling) + WebRTC (media)   |
 | Auth           | JWT (`jsonwebtoken` + `bcryptjs`)        |
 | Database       | PostgreSQL (Neon)                        |
 | ORM            | Prisma 7 (`@prisma/adapter-pg`)          |
 | Validation     | Zod                                      |
-
-Real-time media (WebRTC/Socket.IO, LiveKit/Mediasoup) lands in a later task —
-see [Project status](#project-status).
 
 ## Getting started
 
@@ -28,6 +26,13 @@ npx prisma generate                              # generate the Prisma client
 npx prisma migrate dev --name init_meeting_schema # apply the schema to your DB
 npm run dev
 ```
+
+`npm run dev` (and `npm run start`) run `server.ts`, a custom Node server —
+not plain `next dev` — because Socket.IO needs a long-lived HTTP server to
+attach to for real-time signaling. Nothing about routing or page/API
+behavior changes; it just also opens a WebSocket endpoint at `/api/socket`
+alongside everything Next already serves. `npm run build` is still plain
+`next build`.
 
 Open <http://localhost:3000> — it redirects to `/login`.
 
@@ -42,33 +47,142 @@ Open <http://localhost:3000> — it redirects to `/login`.
 ## Project structure
 
 ```
+server.ts               Custom Node server — Next + Socket.IO on one HTTP server
 src/
   app/
-    login/           Sign-in page
-    signup/          Account creation page
-    dashboard/        Create/join meeting UI
+    login/           Sign-in page (wired to the API, cross-redirects to signup)
+    signup/          Account creation page (wired, cross-redirects to login)
+    dashboard/        Create/join meeting UI, auth-guarded, reads landing intent
+    room/[token]/      Meeting room screen — video tiles, participant list, controls
     api/
       auth/
         signup/       POST — create account + issue token
         login/         POST — verify credentials + issue token
+        me/             GET — verify token + return current user
       rooms/
         route.ts       POST — create meeting · GET — list caller's meetings
+        [token]/         GET — meeting details + participant roster
         join/           POST — join a meeting by room token
+        leave/           POST — leave a meeting
   components/
     ThemeProvider.tsx   Light/dark theme context (persisted, respects OS preference)
     ThemeToggle.tsx      The toggle switch itself
     SignalMotif.tsx       Decorative animated node graph on the auth screens
     BrandMark.tsx          Veyra logo mark
+    AppToaster.tsx          Toast notification viewport (sonner), theme-matched
+    VideoTile.tsx           One participant's tile (local or real remote WebRTC stream)
+    ControlBar.tsx           Mic/camera/screen-share/participants/leave bar
+    ParticipantList.tsx      Slide-over roster panel
+  hooks/
+    useMeetingRoom.ts        Socket.IO signaling + full-mesh WebRTC peer connections
   lib/
     prisma.ts            Prisma client singleton (hot-reload safe)
-    auth.ts               Password hashing + JWT sign/verify + route guard
+    auth.ts               Password hashing + JWT sign/verify + route guard (server)
+    auth-client.ts         Session storage + checkAuth() (client)
     room-code.ts            Room token generation ("xxx-xxx-xxx") + link builder
   generated/prisma/         Prisma's generated client (not committed by convention)
 prisma/
   schema.prisma            Data model — see below
 postman/
-  Veyra.postman_collection.json   Import this to test every endpoint below
+  Veyra.postman_collection.json   Import this to test every REST endpoint below
+                                   (Socket.IO isn't REST, so it isn't in here —
+                                   see Real-time signaling & WebRTC instead)
 ```
+
+## Auth-gated navigation flow
+
+The landing page (`/`) leads with the two things people actually came to
+do — **New meeting** / **Join meeting** — instead of a login/signup choice.
+Clicking either runs a background check (`GET /api/auth/me`, via
+`checkAuth()` in `src/lib/auth-client.ts`) rather than trusting a token's
+mere presence in localStorage:
+
+- **Already signed in** → straight to `/dashboard?intent=create` (or
+  `=join`). The dashboard reads that intent once — `create` auto-starts
+  room creation, `join` focuses the join-code field — then discards it.
+- **Not signed in** → the intent is stashed in localStorage (key
+  `veyra_intent`) and the visitor is sent to `/login`. After a successful
+  login/signup they land on `/dashboard`, which checks localStorage for the
+  stashed intent as a fallback (since a redirect through `/login` doesn't
+  carry a query string along).
+
+**Login ↔ signup cross-redirect:** rather than a dead-end error, a failed
+login/signup routes you to the other form with the email pre-filled:
+- Login with an email that isn't registered (`404`, `reason:
+  "not_registered"`) → toast + redirect to `/signup?email=...`.
+- Signup with an email that's already registered (`409`, `reason:
+  "already_registered"`) → toast + redirect to `/login?email=...`.
+
+**Toasts:** all user-facing success/error feedback goes through
+[sonner](https://sonner.emilkowal.ski/) (`toast.success` / `toast.error` /
+`toast.info`), mounted once in `layout.tsx` via `AppToaster` and themed to
+match whatever light/dark mode is active.
+
+**Route guards:** `/dashboard` and `/room/[token]` both run `checkAuth()`
+on mount and redirect to `/login` if it comes back empty — so a bookmarked
+or directly-typed URL can't render a page whose API calls would just fail
+with 401s.
+
+## Meeting room UI
+
+`/room/[token]` is the actual meeting screen: a video tile grid, a
+participant list panel, and a bottom control bar (mic, camera, screen
+share, participants toggle, leave) — components live in `src/components/`
+as `VideoTile`, `ControlBar`, `ParticipantList`.
+
+Two data sources feed the tiles, on purpose kept separate:
+- The **DB roster** (`GET /api/rooms/[token]`, polled periodically) — the
+  durable "who's actually a participant" list. Drives the participant
+  panel, host badges, and detecting when the meeting has ended.
+- The **live peer set** (`useMeetingRoom`, below) — who's actually
+  connected *right now*, with a real audio/video `MediaStream` once their
+  connection finishes negotiating. A roster entry with no live peer yet
+  just means they're still connecting; the tile falls back to an
+  avatar-initials placeholder automatically.
+
+Screen share is still a stub (toast only) — sharing a captured stream
+needs its own signaling path, which is future work, not because the
+underlying connection doesn't exist anymore. The "active speaker" ring
+(SRS: "Show the current active speaker") is wired into `VideoTile` as a
+`speaking` prop but nothing sets it yet — that needs real audio-level
+analysis on the now-live streams.
+
+## Real-time signaling & WebRTC
+
+Two pieces work together:
+
+- **`server.ts`** (project root) — a custom Node server that replaces
+  plain `next dev`/`next start` (see [Getting started](#getting-started)).
+  It attaches a Socket.IO server at `/api/socket` alongside Next's normal
+  request handling. Every socket connection must present a valid auth
+  token *and* the room token it wants to join; the server independently
+  verifies (via the database) that the connecting user is currently an
+  active participant of that specific meeting before letting them in —
+  the same access rule the REST API enforces, applied again at the socket
+  layer so it can't be bypassed by going around the REST endpoints.
+
+- **`src/hooks/useMeetingRoom.ts`** (client) — connects to that socket and
+  maintains a **full-mesh** set of `RTCPeerConnection`s: one direct
+  connection to every other participant currently in the call, each
+  carrying your local audio/video tracks and receiving theirs. Handshake:
+  a newcomer is told who's already in the room and sends each of them an
+  offer; everyone else waits for that offer, answers it, and both sides
+  exchange ICE candidates (via a public STUN server) until connected.
+  Live mic/camera toggle state is broadcast over the socket as well —
+  deliberately *not* written to `Participant.isMuted` in the database,
+  since it's ephemeral connection state, not a durable record.
+
+**Known limitation, by design for now:** mesh topology means each
+participant's upload bandwidth grows with the number of others in the
+call — fine for a handful of people, not for a large meeting. The SRS's
+own tech stack table names the standard fix (a media server — LiveKit or
+Mediasoup) for exactly this reason; swapping one in later means replacing
+`useMeetingRoom`, not the room page or `VideoTile`, since both only
+consume the `peers` it returns. Also worth knowing: only a STUN server is
+configured, which resolves most home/office networks but not every
+restrictive NAT/firewall — a TURN server (relaying media when a direct
+connection can't be established) would be the next thing to add for
+reliability outside a controlled testing environment.
 
 ## Data model
 
@@ -117,16 +231,31 @@ Create an account and receive a token.
   "token": "eyJhbGciOi..."
 }
 ```
-`400` on invalid input, `409` if the email is already registered.
+`400` on invalid input, `409` `{ "error": "...", "reason": "already_registered" }` if the email is already registered.
 
 ### `POST /api/auth/login`
 **Request**
 ```json
 { "email": "ayesha@example.com", "password": "supersecret123" }
 ```
-**200 response** — same shape as signup's. `401` on wrong email/password
-(deliberately the same message for both, so the endpoint can't be used to
-find out which emails are registered).
+**200 response** — same shape as signup's.
+
+Unlike signup, this endpoint *does* distinguish the failure reason (a
+deliberate product trade-off for the redirect flow above, not an
+oversight):
+- `404` `{ "error": "No account found with that email.", "reason": "not_registered" }`
+- `401` `{ "error": "Incorrect password.", "reason": "invalid_password" }`
+
+### `POST /api/auth/me`  *(auth required)*
+Verifies the bearer token against the database and returns the current
+user — the "am I still logged in" check the frontend runs before letting
+someone through a gated action.
+
+**200 response**
+```json
+{ "user": { "id": 1, "name": "Ayesha Khan", "email": "ayesha@example.com", "username": "ayesha", "createdAt": "..." } }
+```
+`401` if the token is missing, invalid, expired, or its account no longer exists.
 
 ### `POST /api/rooms`  *(auth required)*
 Creates a meeting; caller becomes host automatically. No request body.
@@ -164,6 +293,22 @@ backs the dashboard's "Recent meetings" list.
   ]
 }
 ```
+
+### `GET /api/rooms/[token]`  *(auth required)*
+Meeting details plus the full participant roster — what the meeting-room
+screen (`/room/[token]`) polls to render video tiles and the participant
+list. Restricted to people who have actually joined this specific meeting.
+
+**200 response**
+```json
+{
+  "meeting": { "id": 1, "token": "7fk-2xa-plm", "createdAt": "...", "endAt": null, "hostId": 1 },
+  "participants": [
+    { "userId": 1, "name": "Ayesha Khan", "email": "ayesha@example.com", "isHost": true, "isMuted": false, "joinedAt": "...", "leftAt": null }
+  ]
+}
+```
+`403` if the caller has never joined this meeting, `404` if the token doesn't match one.
 
 ### `POST /api/rooms/join`  *(auth required)*
 **Request**
@@ -216,14 +361,18 @@ the collection is pre-authenticated. **Create room** similarly saves its
 
 ## Project status
 
-Built day-by-day against a compressed schedule (deadline 12 Sept, internal
-target 9 Sept):
+Built incrementally against a compressed schedule (deadline 12 Sept,
+internal target 9 Sept):
 
-- [x] **Task 1** — Login/signup/dashboard UI, light/dark theme toggle
+- [x] **Auth & dashboard UI** — Login/signup/dashboard, light/dark theme toggle
 - [x] **Schema** — User / Meeting / Participant data model
-- [x] **Task 2** — Auth (signup/login) + room (create/list/join) APIs
-- [ ] Task 3 — Meeting room UI (video tiles, participant list, control bar)
-- [ ] Task 4 — Socket.IO signaling + WebRTC/LiveKit integration
-- [ ] Task 5 — Host controls (mute/remove/end meeting) + participant management
-- [ ] Task 6 — Screen sharing, meeting security, active speaker indicator
-- [ ] Task 7 — Optional chat, polish, final test pass
+- [x] **Auth & room APIs** — signup/login/me + room create/list/join/leave
+- [x] **Auth-gated navigation** — landing page with gated create/join, login/signup
+      wired to the API with toast alerts and cross-redirects, dashboard wired to
+      live room data, placeholder `/room/[token]` for the post-join hand-off
+- [x] **Meeting room UI** — video tile grid (real local camera,
+      roster-driven remote placeholders), participant list panel, control bar
+- [ ] Real-time signaling + WebRTC peer connections (real remote video/audio)
+- [ ] Host controls (mute/remove/end meeting) + participant management
+- [ ] Screen sharing, meeting security, active speaker detection
+- [ ] Optional chat, polish, final test pass

@@ -62,6 +62,14 @@
               }
             }
           ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
         }
       ]
     },
@@ -95,6 +103,18 @@
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
             "url": { "raw": "{{baseUrl}}/api/rooms", "host": ["{{baseUrl}}"], "path": ["api", "rooms"] }
+          }
+        },
+        {
+          "name": "Get room details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{roomToken}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "rooms", "{{roomToken}}"]
+            }
           }
         },
         {

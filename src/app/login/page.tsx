@@ -4,27 +4,70 @@
  * /login
  *
  * Sign-in screen: split layout with the brand panel (SignalMotif) on the
- * left and the credentials form on the right. Submits to
- * POST /api/auth/login once wired up (Task 3); currently a UI-only stub —
- * see the TODO in handleSubmit.
+ * left and the credentials form on the right.
+ *
+ * Wired to POST /api/auth/login. Two behaviors worth noting:
+ *   - If the email isn't registered (404, reason "not_registered"), we
+ *     don't just show an error — we toast it and bounce straight to
+ *     /signup with the email pre-filled, since that's almost always what
+ *     someone actually wants next.
+ *   - On success we save the session and return to /dashboard, which picks
+ *     up whatever intent (create/join) the landing page stashed before
+ *     sending the visitor here.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Mail, Lock } from "lucide-react";
+import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SignalMotif } from "@/components/SignalMotif";
 import { BrandMark } from "@/components/BrandMark";
+import { saveSession } from "@/lib/auth-client";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Pick up ?email= from a /signup redirect (already-registered email).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prefill = params.get("email");
+    if (prefill) setEmail(prefill);
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // TODO (Task 3): wire to POST /api/auth/login — endpoint already live, see README
-    setTimeout(() => setLoading(false), 600);
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (data.reason === "not_registered") {
+          toast.error("No account found for that email — let's get you signed up.");
+          router.push(`/signup?email=${encodeURIComponent(email)}`);
+          return;
+        }
+        toast.error(data.error ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      saveSession(data.token, data.user);
+      toast.success(`Welcome back, ${data.user.name ?? data.user.email}.`);
+      router.push("/dashboard");
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

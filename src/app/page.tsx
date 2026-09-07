@@ -1,104 +1,104 @@
-import Link from "next/link";
-import { Users, Link2, ShieldCheck } from "lucide-react";
+"use client";
+
+/**
+ * / (landing page)
+ *
+ * Entry point for the whole app. Instead of forcing a login/signup choice
+ * up front, it leads with the two things people actually came here to do —
+ * "New meeting" and "Join meeting" — and only checks auth once one of them
+ * is clicked:
+ *
+ *   - authenticated  -> straight to /dashboard, with ?intent= so the
+ *     dashboard can act on it immediately (auto-start creation, or focus
+ *     the join-code field) instead of making them click again.
+ *   - not authenticated -> the intent is stashed in localStorage and the
+ *     visitor is sent to /login. Login (or a signup it bounces to — see
+ *     that page) redirects back to /dashboard once they're in; the
+ *     dashboard picks the stashed intent back up from there.
+ *
+ * The auth check itself is `checkAuth()` (GET /api/auth/me) — never just a
+ * "is there a token in localStorage" guess — so an expired/invalid token
+ * correctly sends someone to /login instead of a dashboard that then fails.
+ */
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Plus, LogIn } from "lucide-react";
+import { toast } from "sonner";
+import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SignalMotif } from "@/components/SignalMotif";
-import { BrandMark } from "@/components/BrandMark";
+import { checkAuth } from "@/lib/auth-client";
 
-export default function Home() {
+type Intent = "create" | "join";
+
+/** Key under which the landing page's chosen intent is stashed for
+ *  /dashboard to pick up after a login/signup round-trip. */
+const INTENT_STORAGE_KEY = "veyra_intent";
+
+export default function LandingPage() {
+  const router = useRouter();
+  const [pending, setPending] = useState<Intent | null>(null);
+
+  async function handleIntent(intent: Intent) {
+    if (pending) return;
+    setPending(intent);
+
+    const user = await checkAuth();
+
+    if (user) {
+      router.push(`/dashboard?intent=${intent}`);
+      return;
+    }
+
+    window.localStorage.setItem(INTENT_STORAGE_KEY, intent);
+    toast.info("Please sign in to continue.");
+    router.push("/login");
+  }
+
   return (
-    <div className="min-h-screen bg-bg">
-      <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0F1115] text-white">
+      <div className="absolute inset-0 opacity-40">
+        <SignalMotif />
+      </div>
+
+      <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
         <div className="flex items-center gap-2">
           <BrandMark size={22} />
           <span className="font-display text-lg font-semibold">Veyra</span>
         </div>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          <Link
-            href="/login"
-            className="hidden rounded-lg px-4 py-2 text-sm font-semibold text-ink transition-colors hover:text-accent sm:inline-block"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/signup"
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            Register
-          </Link>
-        </div>
+        <ThemeToggle />
       </header>
 
-      <main>
-        <section className="relative overflow-hidden">
-          <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-6 py-16 sm:px-10 md:grid-cols-2 md:py-24">
-            <div className="relative z-10">
-              <h1 className="font-display text-4xl font-semibold leading-tight sm:text-5xl">
-                Meetings that just work, for every seat at the table.
-              </h1>
-              <p className="mt-4 max-w-md text-base text-muted sm:text-lg">
-                Create a room in seconds, share a link, and bring your whole team
-                in — no downloads, no friction.
-              </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-              </div>
-            </div>
+      <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 text-center">
+        <h1 className="max-w-xl font-display text-3xl font-semibold leading-tight sm:text-4xl">
+          Every seat connected, one room at a time.
+        </h1>
+        <p className="mt-3 max-w-md text-sm text-white/60">
+          Start a meeting and share the link, or join one with a code —
+          no downloads required.
+        </p>
 
-            <div className="relative hidden aspect-square overflow-hidden rounded-2xl border border-edge bg-surface2 md:block dark:border-transparent dark:bg-[#0F1115]">
-              <div className="absolute inset-0 opacity-70">
-                <SignalMotif />
-              </div>
-              <div className="absolute bottom-6 left-6 right-6 text-ink/70 dark:text-white/70">
-                <p className="text-sm">
-                  Host, present, and talk with your team in real time.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="border-t border-edge bg-surface">
-          <div className="mx-auto max-w-6xl px-6 py-14 sm:px-10">
-            <div className="grid gap-8 sm:grid-cols-3">
-              <div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
-                  <Link2 size={18} className="text-accent" />
-                </div>
-                <h3 className="mt-4 font-display text-base font-semibold">
-                  One link, instant room
-                </h3>
-                <p className="mt-1 text-sm text-muted">
-                  Create a meeting and share a single link — no setup required.
-                </p>
-              </div>
-              <div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent2/10">
-                  <Users size={18} className="text-accent2" />
-                </div>
-                <h3 className="mt-4 font-display text-base font-semibold">
-                  Built for teams
-                </h3>
-                <p className="mt-1 text-sm text-muted">
-                  Bring as many participants as you need into one room.
-                </p>
-              </div>
-              <div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
-                  <ShieldCheck size={18} className="text-accent" />
-                </div>
-                <h3 className="mt-4 font-display text-base font-semibold">
-                  Secure by default
-                </h3>
-                <p className="mt-1 text-sm text-muted">
-                  Every room is private to the people you invite.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <div className="mt-10 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
+          <button
+            onClick={() => handleIntent("create")}
+            disabled={pending !== null}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#6C77FF] py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            <Plus size={16} />
+            {pending === "create" ? "Checking..." : "New meeting"}
+          </button>
+          <button
+            onClick={() => handleIntent("join")}
+            disabled={pending !== null}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/20 py-3 text-sm font-semibold transition-colors hover:border-white/40 disabled:opacity-60"
+          >
+            <LogIn size={16} />
+            {pending === "join" ? "Checking..." : "Join meeting"}
+          </button>
+        </div>
       </main>
 
-      <footer className="border-t border-edge px-6 py-8 text-center text-xs text-muted/70 sm:px-10">
+      <footer className="relative z-10 px-6 pb-6 text-center text-xs text-white/40 sm:px-10 sm:text-left">
         © 2026 Veyra. Built for teams that meet often.
       </footer>
     </div>

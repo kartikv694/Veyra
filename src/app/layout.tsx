@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { AppToaster } from "@/components/AppToaster";
 import "./globals.css";
 
 const display = Space_Grotesk({
@@ -32,7 +33,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-bg text-ink font-body">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AppToaster />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

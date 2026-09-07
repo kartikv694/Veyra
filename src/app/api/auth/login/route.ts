@@ -1,20 +1,22 @@
 /**
- * POST /api/auth/login
  *
  * Verifies email + password and returns a fresh auth token.
  *
  * Request body:
  *   { "email": string, "password": string }
- *
- * Responses:
- *   200  { user: { id, name, email, username, createdAt }, token }
- *   400  { error, details }   — validation failed
- *   401  { error }            — email not found or password incorrect
- *
- * Note: on a wrong email vs. a wrong password we return the *same* 401
- * message ("Invalid email or password") rather than distinguishing them —
- * this stops an attacker from using the endpoint to discover which emails
- * are registered.
+*
+* Responses:
+*   200  { user: { id, name, email, username, createdAt }, token }
+*   400  { error, details }                            — validation failed
+*   404  { error, reason: "not_registered" }             — no account with that email
+*   401  { error, reason: "invalid_password" }            — email exists, password is wrong
+*
+* Note on `reason`: this deliberately distinguishes "no such account" from
+* "wrong password" (a generic single message is more common practice, to
+ * stop the endpoint being used to enumerate registered emails) so the
+ * client can bounce a not-yet-registered visitor straight to /signup
+ * instead of just showing a dead-end error. That's a product trade-off
+ * made intentionally here, not an oversight.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -28,6 +30,7 @@ const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// POST /api/auth/login
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = loginSchema.safeParse(body);
@@ -42,10 +45,19 @@ export async function POST(req: NextRequest) {
   const { email, password } = parsed.data;
 
   const user = await prisma.user.findUnique({ where: { email } });
-  const passwordMatches = user ? await verifyPassword(password, user.password) : false;
+  if (!user) {
+    return NextResponse.json(
+      { error: "No account found with that email.", reason: "not_registered" },
+      { status: 404 },
+    );
+  }
 
-  if (!user || !passwordMatches) {
-    return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+  const passwordMatches = await verifyPassword(password, user.password);
+  if (!passwordMatches) {
+    return NextResponse.json(
+      { error: "Incorrect password.", reason: "invalid_password" },
+      { status: 401 },
+    );
   }
 
   const token = signAuthToken({ sub: user.id, email: user.email });

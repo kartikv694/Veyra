@@ -1,5 +1,5 @@
 /**
- * POST /api/rooms/join
+ * 
  *
  * Joins the caller to an existing meeting by its room token.
  * Requires `Authorization: Bearer <token>`.
@@ -46,6 +46,7 @@ const joinSchema = z.object({
   token: z.string().min(1, "Room token is required"),
 });
 
+// POST /api/rooms/join
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth) return unauthorized();

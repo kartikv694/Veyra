@@ -1,5 +1,5 @@
 /**
- * POST /api/auth/signup
+ * 
  *
  * Creates a new user account and immediately logs them in (returns a token,
  * same as /api/auth/login would) so the client can go straight from signup
@@ -11,7 +11,7 @@
  * Responses:
  *   201  { user: { id, name, email, username, createdAt }, token }
  *   400  { error, details }   — validation failed
- *   409  { error }            — email already registered
+ *   409  { error, reason: "already_registered" }   — email already registered
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -28,6 +28,7 @@ const signupSchema = z.object({
   username: z.string().min(3).max(30).optional(),
 });
 
+// POST /api/auth/signup
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = signupSchema.safeParse(body);
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
   const existingUser = await prisma.user.findUnique({ where: { email } });
   if (existingUser) {
     return NextResponse.json(
-      { error: "An account with this email already exists." },
+      { error: "An account with this email already exists.", reason: "already_registered" },
       { status: 409 },
     );
   }
