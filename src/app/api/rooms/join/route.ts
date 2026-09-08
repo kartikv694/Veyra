@@ -18,7 +18,9 @@
  *     active Participant row with `isHost: true` and `leftAt: null`).
  *     Joining is invite/token-based, so admitting a brand-new person
  *     without anyone with host rights present isn't allowed. The host
- *     themself is naturally exempt from this check.
+ *     themself is naturally exempt from this check. A locked meeting
+ *     (`Meeting.locked`, toggled via PATCH /api/rooms/[token]/lock) blocks
+ *     first-time joins the same way, host-presence or not.
  *
  * Host identity itself is untouched by any of this — `Meeting.hostId`
  * never changes here. See /api/rooms/leave for why.
@@ -30,7 +32,7 @@
  *   200  { meeting: {...}, participant: {...} }
  *   400  { error, details }  — validation failed
  *   401  { error }           — missing/invalid auth token
- *   403  { error }           — first-time join attempted while host is absent
+ *   403  { error }           — first-time join attempted while host is absent, or meeting is locked
  *   404  { error }           — no meeting with that token
  *   410  { error }           — meeting has already ended
  */
@@ -75,6 +77,13 @@ export async function POST(req: NextRequest) {
   const isHostThemself = auth.sub === meeting.hostId;
 
   if (!existingParticipant && !isHostThemself) {
+    if (meeting.locked) {
+      return NextResponse.json(
+        { error: "This meeting is locked. Ask the host to let you in." },
+        { status: 403 },
+      );
+    }
+
     // First-time join by someone new: only allowed while the host is
     // actively present to admit them.
     const hostIsPresent = await prisma.participant.findFirst({

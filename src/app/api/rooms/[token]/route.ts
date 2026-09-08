@@ -1,6 +1,5 @@
 /**
  *
- *
  * Returns a meeting's details plus its full participant roster — what the
  * meeting-room screen needs to render video tiles and the participant list
  * (SRS: "Display participant video tiles and participant list").
@@ -12,7 +11,7 @@
  *
  * Responses:
  *   200  {
- *     meeting: { id, token, createdAt, endAt, hostId },
+ *     meeting: { id, token, createdAt, endAt, hostId, locked },
  *     participants: [{ userId, name, email, isHost, isMuted, joinedAt, leftAt }]
  *   }
  *   401  { error }  — missing/invalid auth token
@@ -84,6 +83,7 @@ export async function GET(
       createdAt: meeting.createdAt,
       endAt: meeting.endAt,
       hostId: meeting.hostId,
+      locked: meeting.locked,
     },
 
     participants: meeting.participants.map(

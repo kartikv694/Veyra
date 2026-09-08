@@ -45,15 +45,40 @@ export default function RoomPage() {
   const [cameraOn, setCameraOn] = useState(true);
   const [participantsOpen, setParticipantsOpen] = useState(true);
   const [leaving, setLeaving] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [locked, setLocked] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
+
+  /** Stops local media and sends the browser back to the dashboard — the
+   *  shared last step whether you left voluntarily, got removed by the
+   *  host, or the host ended the meeting. */
+  const exitToDashboard = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    router.push("/dashboard");
+  }, [router]);
 
   // The real-time layer: Socket.IO signaling + a WebRTC peer connection per
   // other participant currently connected. `participants` (below) is the
   // durable DB roster used for the panel and host badges; `peers` is the
   // live, ephemeral set of who's actually connected right now, with real
   // media streams once each connection completes.
-  const { peers, connected, broadcastMediaState } = useMeetingRoom(token, localStream);
+  const { peers, connected, broadcastMediaState } = useMeetingRoom(token, localStream, me?.id ?? null, {
+    onForceMuted: () => {
+      const stream = streamRef.current;
+      stream?.getAudioTracks().forEach((t) => (t.enabled = false));
+      setMicOn(false);
+      toast.info("The host muted you.");
+    },
+    onRemoved: () => {
+      toast.error("You were removed from the meeting by the host.");
+      exitToDashboard();
+    },
+    onMeetingEnded: () => {
+      toast.info("The host ended the meeting.");
+      exitToDashboard();
+    },
+  });
 
   const loadRoster = useCallback(async () => {
     const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
@@ -66,6 +91,7 @@ export default function RoomPage() {
     }
     const data = await res.json();
     setParticipants(data.participants);
+    setLocked(data.meeting.locked);
     if (data.meeting.endAt) {
       toast.info("This meeting has ended.");
       router.push("/dashboard");
@@ -160,13 +186,92 @@ export default function RoomPage() {
         toast.error(data.error ?? "Couldn't leave the meeting.");
         return;
       }
-      streamRef.current?.getTracks().forEach((t) => t.stop());
       toast.success("You left the meeting.");
-      router.push("/dashboard");
+      exitToDashboard();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setLeaving(false);
+    }
+  };
+
+  const handleMuteParticipant = async (userId: number) => {
+    try {
+      const res = await fetch(`/api/rooms/${token}/participants/${userId}/mute`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't mute that participant.");
+        return;
+      }
+      toast.success("Participant muted.");
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleRemoveParticipant = async (userId: number) => {
+    const target = participants.find((p) => p.userId === userId);
+    if (!window.confirm(`Remove ${target?.name ?? "this participant"} from the meeting?`)) return;
+
+    try {
+      const res = await fetch(`/api/rooms/${token}/participants/${userId}/remove`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't remove that participant.");
+        return;
+      }
+      toast.success("Participant removed.");
+      loadRoster();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleToggleLock = async () => {
+    const next = !locked;
+    try {
+      const res = await fetch(`/api/rooms/${token}/lock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ locked: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't change meeting access.");
+        return;
+      }
+      setLocked(next);
+      toast.success(next ? "Meeting locked — no new participants can join." : "Meeting unlocked.");
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleEndMeeting = async () => {
+    if (!window.confirm("End this meeting for everyone?")) return;
+    setEnding(true);
+    try {
+      const res = await fetch(`/api/rooms/${token}/end`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't end the meeting.");
+        return;
+      }
+      toast.success("Meeting ended for everyone.");
+      exitToDashboard();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setEnding(false);
     }
   };
 
@@ -189,6 +294,9 @@ export default function RoomPage() {
             className={`ml-1 h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-white/20"}`}
             title={connected ? "Connected" : "Connecting..."}
           />
+          {locked && (
+            <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-1 text-xs text-amber-300">Locked</span>
+          )}
         </div>
         <ThemeToggle />
       </header>
@@ -223,6 +331,9 @@ export default function RoomPage() {
           open={participantsOpen}
           participants={participants}
           onClose={() => setParticipantsOpen(false)}
+          viewerIsHost={myRow?.isHost ?? false}
+          onMute={handleMuteParticipant}
+          onRemove={handleRemoveParticipant}
         />
       </div>
 
@@ -236,6 +347,11 @@ export default function RoomPage() {
         onScreenShareClick={handleScreenShareClick}
         onLeave={handleLeave}
         leaving={leaving}
+        isHost={myRow?.isHost ?? false}
+        locked={locked}
+        onToggleLock={handleToggleLock}
+        onEndMeeting={handleEndMeeting}
+        ending={ending}
       />
     </div>
   );

@@ -21,6 +21,7 @@ import next from "next";
 import { Server, type Socket } from "socket.io";
 import { verifyAuthToken } from "./src/lib/auth";
 import { prisma } from "./src/lib/prisma";
+import { setIO, userChannel } from "@/lib/socket-emitters";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = Number(process.env.PORT ?? 3000);
@@ -48,6 +49,11 @@ app.prepare().then(() => {
     Record<string, never>,
     SocketData
   >(httpServer, { path: SOCKET_PATH });
+
+  // Let REST route handlers (running in this same process) push real-time
+  // events after a mutation — e.g. a host's mute/remove call reaching the
+  // affected participant's browser immediately. See src/lib/socket-emitter.ts.
+  setIO(io);
 
   /**
    * Auth middleware: every connection must present a valid JWT (the same
@@ -84,6 +90,9 @@ app.prepare().then(() => {
   io.on("connection", (socket: Socket<any, any, any, SocketData>) => {
     const { roomToken, userId, name } = socket.data;
     socket.join(roomToken);
+    // Lets a REST handler (e.g. host mutes/removes this user) target this
+    // specific person without knowing their live socket id.
+    socket.join(userChannel(roomToken, userId));
 
     // Tell the newcomer who's already in the room, so *they* initiate the
     // WebRTC offer to each existing peer (see src/hooks/useMeetingRoom.ts).
@@ -106,17 +115,17 @@ app.prepare().then(() => {
     // --- WebRTC signaling relay: server never inspects SDP/ICE contents,
     // it just forwards between the two socket ids involved. ---
     socket.on("webrtc:offer", ({ to, sdp }: { to: string; sdp: unknown }) => {
-        // @ts-ignore
+      // @ts-ignore
       io.to(to).emit("webrtc:offer", { from: socket.id, fromUserId: userId, name, sdp });
     });
 
     socket.on("webrtc:answer", ({ to, sdp }: { to: string; sdp: unknown }) => {
-        // @ts-ignore
+      // @ts-ignore
       io.to(to).emit("webrtc:answer", { from: socket.id, sdp });
     });
 
     socket.on("webrtc:ice-candidate", ({ to, candidate }: { to: string; candidate: unknown }) => {
-        // @ts-ignore
+      // @ts-ignore
       io.to(to).emit("webrtc:ice-candidate", { from: socket.id, candidate });
     });
 

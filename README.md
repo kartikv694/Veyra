@@ -62,6 +62,11 @@ src/
       rooms/
         route.ts       POST — create meeting · GET — list caller's meetings
         [token]/         GET — meeting details + participant roster
+          end/             POST — host ends the meeting for everyone
+          lock/             PATCH — host locks/unlocks new-participant access
+          participants/[userId]/
+            mute/             POST — host force-mutes a participant
+            remove/            POST — host removes a participant
         join/           POST — join a meeting by room token
         leave/           POST — leave a meeting
   components/
@@ -71,8 +76,8 @@ src/
     BrandMark.tsx          Veyra logo mark
     AppToaster.tsx          Toast notification viewport (sonner), theme-matched
     VideoTile.tsx           One participant's tile (local or real remote WebRTC stream)
-    ControlBar.tsx           Mic/camera/screen-share/participants/leave bar
-    ParticipantList.tsx      Slide-over roster panel
+    ControlBar.tsx           Mic/camera/screen-share/participants/leave/host controls
+    ParticipantList.tsx      Slide-over roster panel with host mute/remove actions
   hooks/
     useMeetingRoom.ts        Socket.IO signaling + full-mesh WebRTC peer connections
   lib/
@@ -80,6 +85,8 @@ src/
     auth.ts               Password hashing + JWT sign/verify + route guard (server)
     auth-client.ts         Session storage + checkAuth() (client)
     room-code.ts            Room token generation ("xxx-xxx-xxx") + link builder
+    host-action.ts           Shared host/target validation for mute + remove routes
+    socket-emitter.ts         Access to the shared Socket.IO instance from REST routes
   generated/prisma/         Prisma's generated client (not committed by convention)
 prisma/
   schema.prisma            Data model — see below
@@ -184,6 +191,41 @@ restrictive NAT/firewall — a TURN server (relaying media when a direct
 connection can't be established) would be the next thing to add for
 reliability outside a controlled testing environment.
 
+## Host controls & participant management
+
+Covers the remaining host-facing SRS items: mute participants, remove
+participants, control meeting access, end the meeting. All four are
+REST endpoints under `/api/rooms/[token]/...` (full request/response
+shapes in [API reference](#api-reference)), each independently checking
+`meeting.hostId === caller` — a non-host calling any of them gets `403`
+regardless of what the UI shows.
+
+What makes these feel immediate rather than "wait for the next poll":
+route handlers run in the same Node process as `server.ts`'s Socket.IO
+server (see `src/lib/socket-emitter.ts`), so right after the database
+write they also push an event straight to the affected client(s):
+- **Mute** → `participant:force-muted` to the whole room, so the muted
+  person's client disables its own mic track and everyone else's view of
+  that tile updates, in the same instant.
+- **Remove** → `meeting:removed` to that person specifically, then their
+  socket is force-disconnected — which fires the ordinary disconnect
+  cleanup, so their tile disappears for everyone the same way it would if
+  they'd left on their own.
+- **End meeting** → `meeting:ended` to everyone in the room.
+- **Lock** doesn't need a push — it only changes what a *future*
+  `POST /api/rooms/join` call will do, so there's nothing to tell anyone
+  right now.
+
+In the UI, these live in `ParticipantList` (per-row mute/remove buttons,
+visible only to the host, on hover) and `ControlBar` (lock toggle and "End
+for everyone", both host-only).
+
+The one gap worth knowing about, not papered over: **remove isn't a ban.**
+See the endpoint's own doc comment and the API reference entry above —
+short version, a removed person's `Participant` row still exists, so
+rejoining treats them as returning and lets them straight back in unless
+the meeting is also locked.
+
 ## Data model
 
 Three models in `prisma/schema.prisma` (each fully documented in-file with
@@ -196,6 +238,8 @@ Three models in `prisma/schema.prisma` (each fully documented in-file with
   code; the full join link is *derived* from it (`APP_URL/room/<token>`)
   rather than duplicated in the database. `hostId` points at the creator.
   `endAt` is `null` while the meeting is live and gets set when it ends.
+  `locked` blocks new (never-joined-before) participants from joining while
+  true — host-controlled access, doesn't affect anyone already in.
 - **Participant** — join table between `User` and `Meeting`. One row per
   user per meeting (`@@unique([meetingId, userId])`), carrying `isHost`,
   `isMuted`, `joinedAt`, and `leftAt` (`null` while still connected) so the
@@ -352,6 +396,61 @@ thing host absence blocks is a *brand-new* person joining for the first
 time (see `/api/rooms/join`). `404` if the token doesn't match a meeting,
 or if the caller isn't currently an active participant in it.
 
+### `PATCH /api/rooms/[token]/lock`  *(auth required, host only)*
+Toggles whether new (never-joined-before) participants can join at all —
+SRS: "control meeting access." Doesn't affect anyone already in.
+
+**Request**
+```json
+{ "locked": true }
+```
+**200 response**
+```json
+{ "meeting": { "id": 1, "token": "7fk-2xa-plm", "locked": true } }
+```
+`403` if the caller isn't the host.
+
+### `POST /api/rooms/[token]/participants/[userId]/mute`  *(auth required, host only)*
+Force-mutes another active participant — SRS: "Host can mute participants"
+/ "allow/disable participant speaking" (same mechanism covers both here).
+One-directional: the host can mute, but can't force someone *unmuted* —
+only that person's own control can turn their mic back on.
+
+**200 response**
+```json
+{ "muted": 2 }
+```
+`400` if targeting yourself or an invalid id, `403` if the caller isn't
+the host, `404` if that person isn't currently in the meeting.
+
+### `POST /api/rooms/[token]/participants/[userId]/remove`  *(auth required, host only)*
+Removes another active participant — SRS: "Host can ... remove
+participants." Sets their `leftAt`, notifies them in real time, and
+disconnects their socket (which cleanly tears down their peer connections
+for everyone else too).
+
+**200 response**
+```json
+{ "removed": 2 }
+```
+Same error codes as mute. **Known limitation:** this doesn't ban the
+person — since their `Participant` row still exists, a follow-up
+`POST /api/rooms/join` treats them as *returning* and lets them straight
+back in (the host-presence/lock checks only gate first-time joins). Lock
+the meeting alongside a removal if it needs to actually stick; there's no
+separate "banned" state.
+
+### `POST /api/rooms/[token]/end`  *(auth required, host only)*
+Ends the meeting for everyone — SRS: "Host can ... end the meeting." Sets
+`endAt` and pushes a real-time `meeting:ended` event so connected clients
+leave immediately.
+
+**200 response**
+```json
+{ "meeting": { "id": 1, "token": "7fk-2xa-plm", "endAt": "2026-09-08T10:00:00.000Z" } }
+```
+`403` if the caller isn't the host, `409` if it's already ended.
+
 ### Testing in Postman
 Import `postman/Veyra.postman_collection.json`. Run **Signup** (or
 **Login**) once — its test script saves the returned token into the
@@ -372,7 +471,11 @@ internal target 9 Sept):
       live room data, placeholder `/room/[token]` for the post-join hand-off
 - [x] **Meeting room UI** — video tile grid (real local camera,
       roster-driven remote placeholders), participant list panel, control bar
-- [ ] Real-time signaling + WebRTC peer connections (real remote video/audio)
-- [ ] Host controls (mute/remove/end meeting) + participant management
+- [x] **Real-time signaling + WebRTC** — Socket.IO server (`server.ts`) +
+      full-mesh peer connections (`useMeetingRoom`); remote tiles now carry
+      real audio/video, mic/camera state broadcasts live
+- [x] **Host controls & participant management** — mute, remove, end
+      meeting, lock access; all four push real-time events to affected
+      clients instead of waiting for the next roster poll
 - [ ] Screen sharing, meeting security, active speaker detection
 - [ ] Optional chat, polish, final test pass

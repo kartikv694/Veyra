@@ -25,6 +25,13 @@
  *      and both sides then trade ICE candidates until connected.
  *   4. "peer:media-state" carries live mic/camera toggles (not persisted —
  *      see server.ts). "peer:left" tears down that peer's connection.
+ *
+ * Also listens for host-initiated actions pushed from REST route handlers
+ * (see src/lib/socket-emitter.ts): "participant:force-muted" updates the
+ * affected peer's `micOn` for everyone (and, if it's *you*, fires
+ * `onForceMuted` so the room page can actually disable your mic track),
+ * "meeting:removed" fires `onRemoved`, and "meeting:ended" fires
+ * `onMeetingEnded`.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
@@ -39,17 +46,41 @@ export interface RemotePeer {
   cameraOn: boolean;
 }
 
+export interface MeetingRoomCallbacks {
+  /** The host force-muted *you* specifically (not just any peer). */
+  onForceMuted?: () => void;
+  /** The host removed *you* from the meeting. */
+  onRemoved?: () => void;
+  /** The host ended the meeting for everyone. */
+  onMeetingEnded?: () => void;
+}
+
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-export function useMeetingRoom(roomToken: string, localStream: MediaStream | null) {
+export function useMeetingRoom(
+  roomToken: string,
+  localStream: MediaStream | null,
+  myUserId: number | null,
+  callbacks: MeetingRoomCallbacks = {},
+) {
   const [peers, setPeers] = useState<Record<string, RemotePeer>>({});
   const [connected, setConnected] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const pcsRef = useRef<Record<string, RTCPeerConnection>>({});
   const localStreamRef = useRef<MediaStream | null>(localStream);
+  // Ref so the socket effect (which intentionally only re-runs on
+  // roomToken changing) always calls the latest callbacks, not stale ones
+  // captured when the socket was first created.
+  const callbacksRef = useRef(callbacks);
+  callbacksRef.current = callbacks;
+  // Same reasoning: myUserId is often still null on first render (auth
+  // check hasn't resolved yet) by the time this effect first fires, and
+  // without a ref that null would be captured forever.
+  const myUserIdRef = useRef(myUserId);
+  myUserIdRef.current = myUserId;
 
   // Keep the ref current, and attach the local stream's tracks to any peer
   // connections that were created before the camera/mic finished loading.
@@ -200,6 +231,28 @@ export function useMeetingRoom(roomToken: string, localStream: MediaStream | nul
 
     socket.on("peer:left", ({ socketId }: { socketId: string }) => {
       removePeer(socketId);
+    });
+
+    socket.on("participant:force-muted", ({ userId: mutedUserId }: { userId: number }) => {
+      // Update that person's tile for everyone watching...
+      setPeers((prev) => {
+        const entry = Object.entries(prev).find(([, p]) => p.userId === mutedUserId);
+        if (!entry) return prev;
+        const [socketId, peer] = entry;
+        return { ...prev, [socketId]: { ...peer, micOn: false } };
+      });
+      // ...and if it was *me*, tell the room page to actually disable my track.
+      if (mutedUserId === myUserIdRef.current) {
+        callbacksRef.current.onForceMuted?.();
+      }
+    });
+
+    socket.on("meeting:removed", () => {
+      callbacksRef.current.onRemoved?.();
+    });
+
+    socket.on("meeting:ended", () => {
+      callbacksRef.current.onMeetingEnded?.();
     });
 
     return () => {

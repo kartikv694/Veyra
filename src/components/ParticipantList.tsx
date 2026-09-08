@@ -2,10 +2,11 @@
 
 /**
  * Slide-over panel listing everyone in the meeting (SRS: "Display ...
- * participant list"). Pure presentation — the room page owns fetching and
- * refreshing the underlying data.
+ * participant list"). Pure presentation — the room page owns fetching,
+ * refreshing, and the actual mute/remove API calls; this just renders the
+ * host-only action buttons and calls back up when they're clicked.
  */
-import { X, MicOff, Crown } from "lucide-react";
+import { X, MicOff, Crown, Mic, UserX } from "lucide-react";
 
 export interface ParticipantRow {
   userId: number;
@@ -19,9 +20,21 @@ interface ParticipantListProps {
   open: boolean;
   participants: ParticipantRow[];
   onClose: () => void;
+  /** Whether the person viewing this panel is the meeting's host — action
+   *  buttons only render when true. */
+  viewerIsHost: boolean;
+  onMute?: (userId: number) => void;
+  onRemove?: (userId: number) => void;
 }
 
-export function ParticipantList({ open, participants, onClose }: ParticipantListProps) {
+export function ParticipantList({
+  open,
+  participants,
+  onClose,
+  viewerIsHost,
+  onMute,
+  onRemove,
+}: ParticipantListProps) {
   if (!open) return null;
 
   const active = participants.filter((p) => !p.leftAt);
@@ -38,12 +51,41 @@ export function ParticipantList({ open, participants, onClose }: ParticipantList
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {active.map((p) => (
-          <div key={p.userId} className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm hover:bg-white/5">
+          <div
+            key={p.userId}
+            className="group flex items-center justify-between gap-2 rounded-lg px-2 py-2 text-sm hover:bg-white/5"
+          >
             <span className="flex min-w-0 items-center gap-1.5 truncate">
               {p.name}
               {p.isHost && <Crown size={13} className="shrink-0 text-accent" />}
             </span>
-            {p.isMuted && <MicOff size={14} className="shrink-0 text-white/40" />}
+
+            <div className="flex shrink-0 items-center gap-1">
+              {p.isMuted && <MicOff size={14} className="text-white/40" />}
+
+              {viewerIsHost && !p.isHost && (
+                <div className="hidden items-center gap-1 group-hover:flex">
+                  {!p.isMuted && (
+                    <button
+                      onClick={() => onMute?.(p.userId)}
+                      aria-label={`Mute ${p.name}`}
+                      title="Mute"
+                      className="rounded p-1 text-white/50 hover:bg-white/10 hover:text-white"
+                    >
+                      <Mic size={13} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onRemove?.(p.userId)}
+                    aria-label={`Remove ${p.name}`}
+                    title="Remove from meeting"
+                    className="rounded p-1 text-white/50 hover:bg-red-500/20 hover:text-red-400"
+                  >
+                    <UserX size={13} />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         ))}
 

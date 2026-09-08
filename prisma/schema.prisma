@@ -92,6 +92,12 @@ model Meeting {
   /// set once the host ends it or the room is otherwise closed.
   endAt DateTime?
 
+  /// Host-controlled access gate (SRS: "control meeting access"). When
+  /// true, no *new* first-time participant can join — see
+  /// POST /api/rooms/[token]/join — regardless of whether the host is
+  /// currently present. Doesn't affect anyone already in the meeting.
+  locked Boolean @default(false)
+
   /// Last time this record was modified. Maintained automatically by Prisma.
   updatedAt DateTime @updatedAt
 }
