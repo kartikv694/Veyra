@@ -24,8 +24,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, LogIn } from "lucide-react";
 import { toast } from "sonner";
-import { BrandMark } from "@/components/BrandMark";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { Navbar } from "@/components/Navbar";
 import { SignalMotif } from "@/components/SignalMotif";
 import { checkAuth } from "@/lib/auth-client";
 
@@ -61,13 +60,7 @@ export default function LandingPage() {
         <SignalMotif />
       </div>
 
-      <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
-        <div className="flex items-center gap-2">
-          <BrandMark size={22} />
-          <span className="font-display text-lg font-semibold">Veyra</span>
-        </div>
-        <ThemeToggle />
-      </header>
+      <Navbar />
 
       <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 text-center">
         <h1 className="max-w-xl font-display text-3xl font-semibold leading-tight sm:text-4xl">

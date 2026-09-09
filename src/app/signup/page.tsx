@@ -16,11 +16,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Mail, Lock, User } from "lucide-react";
+import { Mail, User } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SignalMotif } from "@/components/SignalMotif";
-import { BrandMark } from "@/components/BrandMark";
+import { BrandLink } from "@/components/BrandLink";
+import { PasswordField } from "@/components/PasswordField";
 import { saveSession } from "@/lib/auth-client";
 
 export default function SignupPage() {
@@ -73,10 +74,7 @@ export default function SignupPage() {
   return (
     <div className="grid min-h-screen grid-cols-1 md:grid-cols-2">
       <div className="relative hidden flex-col justify-between overflow-hidden border-r border-edge bg-surface2 p-10 text-ink md:flex dark:border-none dark:bg-[#0F1115] dark:text-white">
-        <div className="flex items-center gap-2">
-          <BrandMark size={22} />
-          <span className="font-display text-lg font-semibold">Veyra</span>
-        </div>
+        <BrandLink size={22} />
         <div className="absolute inset-0 opacity-70">
           <SignalMotif />
         </div>
@@ -93,8 +91,7 @@ export default function SignupPage() {
       <div className="flex flex-col justify-between p-6 sm:p-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 md:hidden">
-            <BrandMark size={22} />
-            <span className="font-display text-lg font-semibold">Veyra</span>
+            <BrandLink size={22} />
           </div>
           <div />
           <ThemeToggle />
@@ -137,18 +134,12 @@ export default function SignupPage() {
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-muted">Password</label>
-              <div className="flex items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2.5 focus-within:border-accent">
-                <Lock size={16} className="text-muted" />
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted/60"
-                />
-              </div>
+              <PasswordField
+                value={password}
+                onChange={setPassword}
+                placeholder="At least 8 characters"
+                minLength={8}
+              />
             </div>
 
             <button

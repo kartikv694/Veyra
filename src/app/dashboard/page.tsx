@@ -23,8 +23,9 @@ import { useRouter } from "next/navigation";
 import { Plus, LogIn, Copy, Check, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { BrandMark } from "@/components/BrandMark";
-import { checkAuth, clearSession, authHeaders, type SessionUser } from "@/lib/auth-client";
+import { BrandLink } from "@/components/BrandLink";
+import { UserMenu } from "@/components/UserMenu";
+import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
 
 const INTENT_STORAGE_KEY = "veyra_intent";
 
@@ -47,16 +48,6 @@ function consumeIntent(): "create" | "join" | null {
   window.localStorage.removeItem(INTENT_STORAGE_KEY);
   const intent = fromUrl ?? fromStorage;
   return intent === "create" || intent === "join" ? intent : null;
-}
-
-function initials(user: SessionUser): string {
-  const source = user.name ?? user.email;
-  return source
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
 }
 
 export default function DashboardPage() {
@@ -131,12 +122,6 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    clearSession();
-    toast.info("Signed out.");
-    router.push("/");
-  };
-
   // Auth guard + one-time intent handling, in that order: we don't act on
   // an intent until we know the session is actually valid.
   useEffect(() => {
@@ -179,20 +164,10 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-bg">
       <header className="flex items-center justify-between border-b border-edge px-6 py-4 sm:px-10">
-        <div className="flex items-center gap-2">
-          <BrandMark size={22} />
-          <span className="font-display text-lg font-semibold">Veyra</span>
-        </div>
+        <BrandLink size={22} />
         <div className="flex items-center gap-4">
           <ThemeToggle />
-          <button
-            onClick={handleLogout}
-            aria-label="Log out"
-            title="Log out"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface2 text-sm font-semibold transition-colors hover:bg-surface2/70"
-          >
-            {initials(user)}
-          </button>
+          <UserMenu user={user} />
         </div>
       </header>
 

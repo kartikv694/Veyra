@@ -46,7 +46,7 @@ export async function resolveHostAction(
         };
     }
 
-    const target = await prisma.participant.findFirst({
+    const target = await prisma.participants.findFirst({
         where: { meetingId: meeting.id , userId: targetUserId, leftAt:null },
     });
     if(!target){

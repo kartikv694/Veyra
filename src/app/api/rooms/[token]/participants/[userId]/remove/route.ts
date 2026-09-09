@@ -3,7 +3,7 @@
  * Host-only. Removes another active participant from the meeting (SRS:
  * "Host can ... remove participants"). Sets their `Participant.leftAt`,
  * then notifies them directly (`meeting:removed`) and disconnects their
- * socket(s) — which fires the normal disconnect handler in server.ts, so
+ * socket(s) — which fires the normal disconnect handler in socket-server/server.ts, so
  * everyone else's tile for them disappears the same way it would if they'd
  * left on their own. No separate "you were removed, tell everyone" event
  * is needed for that part.
@@ -31,7 +31,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { resolveHostAction } from "@/lib/host-action";
-import { getIO, userChannel } from "@/lib/socket-emitters";
+import { emitToUser } from "@/lib/socket-emitters";
 
 export const runtime = "nodejs";
 
@@ -52,15 +52,12 @@ export async function POST(
   const resolved = await resolveHostAction(auth, token, targetUserId);
   if (!resolved.ok) return resolved.response;
 
-  await prisma.participant.update({
+  await prisma.participants.update({
     where: { id: resolved.target.id },
     data: { leftAt: new Date() },
   });
 
-  const io = getIO();
-  const channel = userChannel(token, targetUserId);
-  io?.to(channel).emit("meeting:removed");
-  io?.in(channel).disconnectSockets(true);
+  emitToUser(token, targetUserId, "meeting:removed", undefined, true);
 
   return NextResponse.json({ removed: targetUserId });
 }

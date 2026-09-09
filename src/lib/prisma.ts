@@ -8,9 +8,9 @@
  *
  * Usage:
  *   import { prisma } from "@/lib/prisma";
- *   const user = await prisma.user.findUnique({ where: { id: 1 } });
+ *   const user = await prisma.users.findUnique({ where: { id: 1 } });
  */
-import { PrismaClient } from "@/generated/prisma";
+import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 const globalForPrisma = globalThis as unknown as {

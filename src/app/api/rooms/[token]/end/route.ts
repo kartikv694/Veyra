@@ -14,7 +14,7 @@
 
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getIO, meetingChannel } from "@/lib/socket-emitters";
+import { emitToMeeting } from "@/lib/socket-emitters";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -46,7 +46,7 @@ export async function POST(
         data : {endAt: new Date()},
     });
 
-    getIO()?.to(meetingChannel(token)).emit("meeting:ended");
+    emitToMeeting(token, "meeting:ended");
 
     return NextResponse.json({
         meeting: {id: ended.id, token: ended.token , endAt: ended.endAt },

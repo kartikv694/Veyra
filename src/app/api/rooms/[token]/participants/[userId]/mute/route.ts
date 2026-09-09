@@ -28,7 +28,7 @@
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { resolveHostAction } from "@/lib/host-action";
 import { prisma } from "@/lib/prisma";
-import { getIO, meetingChannel } from "@/lib/socket-emitters";
+import { emitToMeeting } from "@/lib/socket-emitters";
 import { NextRequest, NextResponse } from "next/server";
 
 
@@ -49,13 +49,12 @@ export async function POST(
     const resolved = await resolveHostAction(auth , token, targetUserId);
     if(!resolved.ok) return resolved.response;
 
-    await prisma.participant.update({
+    await prisma.participants.update({
         where: {id: resolved.target.id} ,
         data: {isMuted: true} , 
     });
 
-    getIO()?.to(meetingChannel(token)).emit("participant:force-muted", {
-        userId: targetUserId });
+    emitToMeeting(token, "participant:force-muted", { userId: targetUserId });
 
     return NextResponse.json({muted: targetUserId});    
 }

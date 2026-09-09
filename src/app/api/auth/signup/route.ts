@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const { name, email, password, username } = parsed.data;
 
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+  const existingUser = await prisma.users.findUnique({ where: { email } });
   if (existingUser) {
     return NextResponse.json(
       { error: "An account with this email already exists.", reason: "already_registered" },
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
   const hashedPassword = await hashPassword(password);
 
-  const user = await prisma.user.create({
+  const user = await prisma.users.create({
     data: { name, email, password: hashedPassword, username },
     // Never return the password hash to the client.
     select: { id: true, name: true, email: true, username: true, createdAt: true },

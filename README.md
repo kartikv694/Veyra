@@ -27,27 +27,31 @@ npx prisma migrate dev --name init_meeting_schema # apply the schema to your DB
 npm run dev
 ```
 
-`npm run dev` (and `npm run start`) run `server.ts`, a custom Node server —
-not plain `next dev` — because Socket.IO needs a long-lived HTTP server to
-attach to for real-time signaling. Nothing about routing or page/API
-behavior changes; it just also opens a WebSocket endpoint at `/api/socket`
-alongside everything Next already serves. `npm run build` is still plain
-`next build`.
+`npm run dev`, `npm run build`, and `npm run start` are now plain
+`next dev` / `next build` / `next start` — no custom server. Real-time
+signaling (Socket.IO) is a **separate project**, `../socket-server`
+(a sibling folder, outside this one), run and deployed independently. See
+`../socket-server/README.md`. You'll need that running too for the meeting
+room's audio/video to work; everything else (auth, dashboard, REST API)
+works without it.
 
 Open <http://localhost:3000> — it redirects to `/login`.
 
 ### Environment variables (`.env`)
 
-| Variable       | Purpose                                                              |
-|----------------|------------------------------------------------------------------------|
-| `DATABASE_URL` | Postgres connection string (Neon or any Postgres ≥ 15).               |
-| `JWT_SECRET`   | Signs/verifies auth tokens. Generate with `openssl rand -base64 48`.  |
-| `APP_URL`      | Base URL used to build shareable meeting links from a room token.     |
+| Variable                        | Purpose                                                              |
+|----------------------------------|------------------------------------------------------------------------|
+| `DATABASE_URL`                   | Postgres connection string (Neon or any Postgres ≥ 15).               |
+| `JWT_SECRET`                     | Signs/verifies auth tokens. Generate with `openssl rand -base64 48`.  |
+| `APP_URL`                        | Base URL used to build shareable meeting links from a room token.     |
+| `SOCKET_SERVER_URL`              | Base URL of `../socket-server`, e.g. `http://localhost:4000`.         |
+| `SOCKET_SERVER_INTERNAL_SECRET`  | Must match `INTERNAL_EMIT_SECRET` in `../socket-server/.env`.         |
+| `NEXT_PUBLIC_SOCKET_URL`         | Same socket server, but the public URL the *browser* connects to.     |
 
 ## Project structure
 
 ```
-server.ts               Custom Node server — Next + Socket.IO on one HTTP server
+../socket-server/       Standalone Socket.IO signaling server (separate project — see its README)
 src/
   app/
     login/           Sign-in page (wired to the API, cross-redirects to signup)
@@ -158,15 +162,15 @@ analysis on the now-live streams.
 
 Two pieces work together:
 
-- **`server.ts`** (project root) — a custom Node server that replaces
-  plain `next dev`/`next start` (see [Getting started](#getting-started)).
-  It attaches a Socket.IO server at `/api/socket` alongside Next's normal
-  request handling. Every socket connection must present a valid auth
-  token *and* the room token it wants to join; the server independently
-  verifies (via the database) that the connecting user is currently an
-  active participant of that specific meeting before letting them in —
-  the same access rule the REST API enforces, applied again at the socket
-  layer so it can't be bypassed by going around the REST endpoints.
+- **`../socket-server/server.ts`** — a standalone Node server, a separate
+  project from this one (see [Getting started](#getting-started) and
+  `../socket-server/README.md`). It runs a Socket.IO server at
+  `/api/socket`. Every socket connection must present a valid auth token
+  *and* the room token it wants to join; the server independently verifies
+  (via the database) that the connecting user is currently an active
+  participant of that specific meeting before letting them in — the same
+  access rule the REST API enforces, applied again at the socket layer so
+  it can't be bypassed by going around the REST endpoints.
 
 - **`src/hooks/useMeetingRoom.ts`** (client) — connects to that socket and
   maintains a **full-mesh** set of `RTCPeerConnection`s: one direct
@@ -201,9 +205,10 @@ shapes in [API reference](#api-reference)), each independently checking
 regardless of what the UI shows.
 
 What makes these feel immediate rather than "wait for the next poll":
-route handlers run in the same Node process as `server.ts`'s Socket.IO
-server (see `src/lib/socket-emitter.ts`), so right after the database
-write they also push an event straight to the affected client(s):
+right after the database write, route handlers call the socket server's
+internal HTTP API (see `src/lib/socket-emitters.ts` and
+`../socket-server/server.ts`) to push an event straight to the affected
+client(s):
 - **Mute** → `participant:force-muted` to the whole room, so the muted
   person's client disables its own mic track and everyone else's view of
   that tile updates, in the same instant.
@@ -471,7 +476,7 @@ internal target 9 Sept):
       live room data, placeholder `/room/[token]` for the post-join hand-off
 - [x] **Meeting room UI** — video tile grid (real local camera,
       roster-driven remote placeholders), participant list panel, control bar
-- [x] **Real-time signaling + WebRTC** — Socket.IO server (`server.ts`) +
+- [x] **Real-time signaling + WebRTC** — Socket.IO server (`../socket-server/server.ts`) +
       full-mesh peer connections (`useMeetingRoom`); remote tiles now carry
       real audio/video, mic/camera state broadcasts live
 - [x] **Host controls & participant management** — mute, remove, end

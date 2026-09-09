@@ -1,45 +1,68 @@
 /**
- * Access to the single Socket.IO server instance created in server.ts, so
- * REST route handlers — running in that same Node process (see server.ts's
- * doc comment for why a custom server exists) — can push a real-time event
- * right after a database mutation. This is how a host's REST call to mute
- * or remove someone reaches that person's browser immediately, instead of
- * waiting for their next roster poll.
+ * Bridge from REST route handlers to the standalone Socket.IO signaling
+ * server (see ../../../socket-server — a sibling project, NOT part of this
+ * Next.js app). This is how a host's mute/remove/end-meeting REST call
+ * reaches the affected participant's browser immediately.
  *
- * This only works because everything runs in one process. If this app were
- * ever split across multiple server instances, this global would need to
- * become a real pub/sub bus (e.g. Redis) instead — out of scope for the
- * current single-instance setup, but worth knowing if that changes.
+ * This used to reach an in-process `io` instance directly, back when
+ * server.ts wrapped both Next and Socket.IO in one Node process. That
+ * process split (see socket-server/README.md for why), so route handlers
+ * now push events over a small internal HTTP API instead — same effect,
+ * different transport.
+ *
+ * Requires two env vars on this app:
+ *   SOCKET_SERVER_URL             — base URL of the socket server, e.g.
+ *                                    http://localhost:4000 in dev.
+ *   SOCKET_SERVER_INTERNAL_SECRET — must match INTERNAL_EMIT_SECRET in the
+ *                                    socket server's own .env.
  */
 
-import { Server } from "socket.io";
-
-
-declare global{
-    var __veyraIO: Server | undefined;
+function getConfig(): { baseUrl: string; secret: string } {
+  const baseUrl = process.env.SOCKET_SERVER_URL;
+  const secret = process.env.SOCKET_SERVER_INTERNAL_SECRET;
+  if (!baseUrl || !secret) {
+    throw new Error(
+      "SOCKET_SERVER_URL and SOCKET_SERVER_INTERNAL_SECRET must be set — see socket-server/README.md.",
+    );
+  }
+  return { baseUrl, secret };
 }
 
-/** Called once from server.ts, right after the Socket.IO server is created. */
-export function setIO(io: Server): void {
-  globalThis.__veyraIO = io;
+async function postInternal(path: string, body: Record<string, unknown>): Promise<void> {
+  const { baseUrl, secret } = getConfig();
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-internal-secret": secret },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      console.error(`socket-emitters: ${path} responded ${res.status}`);
+    }
+  } catch (err) {
+    // Best-effort: a REST mutation (mute/remove/end) has already succeeded
+    // in the database by the time this runs. If the socket server is
+    // unreachable, the affected client just won't get the instant push —
+    // it'll pick the change up on its next poll instead of losing it.
+    console.error("socket-emitters: failed to reach socket server", err);
+  }
 }
 
-/** Returns the shared Socket.IO server, or null if it hasn't been set yet
- *  (e.g. this code somehow ran outside server.ts's process). */
-export function getIO(): Server | null {
-  return globalThis.__veyraIO ?? null;
+/** Pushes an event to every socket in a meeting. */
+export function emitToMeeting(roomToken: string, event: string, payload?: unknown): void {
+  void postInternal("/internal/emit-room", { roomToken, event, payload });
 }
 
-/** The room every socket in a given meeting joins — just the room token
- *  itself. Kept as a named helper so the two sides (server.ts and route
- *  handlers) can't drift on the naming scheme. */
-export function meetingChannel(roomToken: string): string {
-  return roomToken;
-}
-
-/** The room a specific user's socket(s) join within a specific meeting —
- *  lets a route handler target one person without knowing their live
- *  socket id(s) directly. */
-export function userChannel(roomToken: string, userId: number): string {
-  return `user:${roomToken}:${userId}`;
+/**
+ * Pushes an event to one user's socket(s) within a meeting, optionally
+ * disconnecting them right after (used when removing a participant).
+ */
+export function emitToUser(
+  roomToken: string,
+  userId: number,
+  event: string,
+  payload?: unknown,
+  disconnect?: boolean,
+): void {
+  void postInternal("/internal/emit-user", { roomToken, userId, event, payload, disconnect });
 }

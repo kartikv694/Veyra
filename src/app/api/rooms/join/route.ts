@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "This meeting has already ended." }, { status: 410 });
   }
 
-  const existingParticipant = await prisma.participant.findUnique({
+  const existingParticipant = await prisma.participants.findUnique({
     where: { meetingId_userId: { meetingId: meeting.id, userId: auth.sub } },
   });
 
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // First-time join by someone new: only allowed while the host is
     // actively present to admit them.
-    const hostIsPresent = await prisma.participant.findFirst({
+    const hostIsPresent = await prisma.participants.findFirst({
       where: { meetingId: meeting.id, userId: meeting.hostId, isHost: true, leftAt: null },
     });
     if (!hostIsPresent) {
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
   // this just clears leftAt. isHost is only ever set on first creation
   // (below), never touched on a rejoin, so a returning host regains their
   // rights automatically and a returning regular participant stays regular.
-  const participant = await prisma.participant.upsert({
+  const participant = await prisma.participants.upsert({
     where: { meetingId_userId: { meetingId: meeting.id, userId: auth.sub } },
     update: { leftAt: null },
     create: {

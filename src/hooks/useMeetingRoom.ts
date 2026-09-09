@@ -2,7 +2,7 @@
 
 /**
  * Real-time layer for the meeting room: connects to the Socket.IO
- * signaling server (see server.ts) and maintains a full-mesh set of WebRTC
+ * signaling server (see ../../../socket-server/server.ts) and maintains a full-mesh set of WebRTC
  * peer connections — one RTCPeerConnection per other participant currently
  * in the call, each carrying our local audio/video tracks and receiving
  * theirs.
@@ -15,7 +15,7 @@
  * that becomes a problem — swapping it in means replacing this hook, not
  * the room page or VideoTile, since both just consume `peers`.
  *
- * Signaling handshake, mirroring server.ts:
+ * Signaling handshake, mirroring socket-server/server.ts:
  *   1. On connect, the server tells us who's already in the room
  *      ("room:peers") — we create a PeerConnection for each and send them
  *      an offer, since we're the newcomer.
@@ -24,10 +24,10 @@
  *   3. Whoever receives an offer creates their own PeerConnection, answers,
  *      and both sides then trade ICE candidates until connected.
  *   4. "peer:media-state" carries live mic/camera toggles (not persisted —
- *      see server.ts). "peer:left" tears down that peer's connection.
+ *      see socket-server/server.ts). "peer:left" tears down that peer's connection.
  *
  * Also listens for host-initiated actions pushed from REST route handlers
- * (see src/lib/socket-emitter.ts): "participant:force-muted" updates the
+ * (see src/lib/socket-emitters.ts, which forwards to socket-server): "participant:force-muted" updates the
  * affected peer's `micOn` for everyone (and, if it's *you*, fires
  * `onForceMuted` so the room page can actually disable your mic track),
  * "meeting:removed" fires `onRemoved`, and "meeting:ended" fires
@@ -153,7 +153,14 @@ export function useMeetingRoom(
     const token = getToken();
     if (!token || !roomToken) return;
 
-    const socket = io({ path: "/api/socket", auth: { token, roomToken } });
+    // Connects directly to the standalone socket server (see
+    // ../../../socket-server — a separate project/deployment, not this
+    // Next.js app), since Socket.IO needs a persistent process this app's
+    // environment doesn't provide. Falls back to same-origin only if the
+    // env var isn't set, which only works in a local dev setup where both
+    // happen to run on the same host.
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
+    const socket = io(socketUrl, { path: "/api/socket", auth: { token, roomToken } });
     socketRef.current = socket;
 
     socket.on("connect", () => setConnected(true));

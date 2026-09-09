@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No meeting found with that room code." }, { status: 404 });
   }
 
-  const me = await prisma.participant.findUnique({
+  const me = await prisma.participants.findUnique({
     where: { meetingId_userId: { meetingId: meeting.id, userId: auth.sub } },
   });
   if (!me || me.leftAt) {
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Note: isHost is intentionally left untouched here — see file doc comment.
-  await prisma.participant.update({
+  await prisma.participants.update({
     where: { id: me.id },
     data: { leftAt: new Date() },
   });

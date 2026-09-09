@@ -16,12 +16,12 @@
  * renders, and GET /api/rooms/[token] independently confirms the caller is
  * actually a participant in *this* meeting (not just logged in generally).
  * The socket connection re-verifies this same thing server-side (see
- * server.ts) — a valid page load doesn't imply a valid socket connection.
+ * socket-server/server.ts) — a valid page load doesn't imply a valid socket connection.
  */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BrandMark } from "@/components/BrandMark";
+import { BrandLink } from "@/components/BrandLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
@@ -287,8 +287,7 @@ export default function RoomPage() {
     <div className="flex h-screen flex-col bg-[#0F1115] text-white">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
         <div className="flex items-center gap-2">
-          <BrandMark size={20} />
-          <span className="font-display text-sm font-semibold">Veyra</span>
+          <BrandLink size={20} textClassName="font-display text-sm font-semibold" />
           <span className="ml-3 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/60">{token}</span>
           <span
             className={`ml-1 h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-white/20"}`}
