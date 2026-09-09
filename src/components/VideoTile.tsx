@@ -8,7 +8,7 @@
  * levels through Socket.IO.
  */
 import { useEffect, useState } from "react";
-import { AudioWaveform, MicOff } from "lucide-react";
+import { AudioWaveform, Hand, MicOff } from "lucide-react";
 
 interface VideoTileProps {
   name: string;
@@ -19,6 +19,11 @@ interface VideoTileProps {
   stream?: MediaStream | null;
   /** True when this tile belongs to the current user. */
   isLocal?: boolean;
+  /** Shows a raised-hand badge in the corner. */
+  handRaised?: boolean;
+  /** Set false for full-bleed views (solo camera, presenting) to match
+   *  Meet's edge-to-edge look. Defaults true for grid/thumbnail tiles. */
+  rounded?: boolean;
 }
 
 function initials(name: string): string {
@@ -51,6 +56,8 @@ export function VideoTile({
   cameraOn = false,
   stream = null,
   isLocal = false,
+  handRaised = false,
+  rounded = true,
 }: VideoTileProps) {
   const [speaking, setSpeaking] = useState(false);
 
@@ -106,7 +113,9 @@ export function VideoTile({
 
   return (
     <div
-      className={`relative flex h-full min-h-0 items-center justify-center overflow-hidden rounded-xl bg-[#171A21] ring-2 transition-all duration-200 ${
+      className={`relative flex h-full min-h-0 items-center justify-center overflow-hidden ring-2 transition-all duration-200 ${
+        rounded ? "rounded-xl" : "rounded-none"
+      } ${cameraOn && stream ? "bg-[#171A21]" : "bg-[#2A2350]"} ${
         speaking ? "ring-accent shadow-[0_0_24px_rgba(255,255,255,0.08)]" : "ring-transparent"
       }`}
     >
@@ -130,6 +139,15 @@ export function VideoTile({
           }`}
         >
           {initials(name)}
+        </div>
+      )}
+
+      {handRaised && (
+        <div
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-amber-400 text-[#202124] shadow-lg"
+          title={`${name} raised their hand`}
+        >
+          <Hand size={16} />
         </div>
       )}
 

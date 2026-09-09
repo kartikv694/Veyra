@@ -44,6 +44,7 @@ export interface RemotePeer {
   stream: MediaStream | null;
   micOn: boolean;
   cameraOn: boolean;
+  handRaised: boolean;
 }
 
 export interface MeetingRoomCallbacks {
@@ -53,6 +54,10 @@ export interface MeetingRoomCallbacks {
   onRemoved?: () => void;
   /** The host ended the meeting for everyone. */
   onMeetingEnded?: () => void;
+  /** Someone (including yourself, echoed back) sent a quick reaction. */
+  onReaction?: (emoji: string, fromName: string) => void;
+  /** A chat message arrived (including your own, echoed back — see server.ts). */
+  onChatMessage?: (message: { text: string; fromName: string; fromUserId: number; at: number }) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -127,7 +132,7 @@ export function useMeetingRoom(
         setPeers((prev) => ({
           ...prev,
           [socketId]: {
-            ...(prev[socketId] ?? { socketId, userId, name, micOn: true, cameraOn: true }),
+            ...(prev[socketId] ?? { socketId, userId, name, micOn: true, cameraOn: true, handRaised: false }),
             stream: event.streams[0] ?? null,
           },
         }));
@@ -142,7 +147,7 @@ export function useMeetingRoom(
       pcsRef.current[socketId] = pc;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
       }));
       return pc;
     },
@@ -185,7 +190,7 @@ export function useMeetingRoom(
       // wait for their "webrtc:offer" and answer it below.
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
       }));
     });
 
@@ -236,6 +241,24 @@ export function useMeetingRoom(
       },
     );
 
+    socket.on(
+      "peer:hand-raised",
+      ({ socketId, raised }: { socketId: string; raised: boolean }) => {
+        setPeers((prev) => (prev[socketId] ? { ...prev, [socketId]: { ...prev[socketId], handRaised: raised } } : prev));
+      },
+    );
+
+    socket.on("peer:reaction", ({ emoji, name }: { emoji: string; name: string }) => {
+      callbacksRef.current.onReaction?.(emoji, name);
+    });
+
+    socket.on(
+      "peer:chat-message",
+      ({ text, name, userId, at }: { text: string; name: string; userId: number; at: number }) => {
+        callbacksRef.current.onChatMessage?.({ text, fromName: name, fromUserId: userId, at });
+      },
+    );
+
     socket.on("peer:left", ({ socketId }: { socketId: string }) => {
       removePeer(socketId);
     });
@@ -274,6 +297,16 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:media-state", { micOn, cameraOn });
   }, []);
 
+  const broadcastHandRaise = useCallback((raised: boolean) => {
+    socketRef.current?.emit("peer:hand-raised", { raised });
+  }, []);
+
+  /** Fire-and-forget emoji reaction, broadcast to everyone else in the
+   *  room — purely ephemeral, not persisted anywhere. */
+  const sendReaction = useCallback((emoji: string) => {
+    socketRef.current?.emit("peer:reaction", { emoji });
+  }, []);
+
   /**
    * Swaps the outgoing video track on every current peer connection —
    * what screen sharing is built on. Rather than opening a second video
@@ -289,6 +322,10 @@ export function useMeetingRoom(
    * attached) — otherwise replaceTrack on a connection with no video
    * sender at all would silently do nothing.
    */
+  const sendChatMessage = useCallback((text: string) => {
+    socketRef.current?.emit("peer:chat-message", { text });
+  }, []);
+
   const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
     Object.values(pcsRef.current).forEach((pc) => {
       const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
@@ -302,5 +339,13 @@ export function useMeetingRoom(
     });
   }, []);
 
-  return { peers: Object.values(peers), connected, broadcastMediaState, replaceVideoTrack };
+  return {
+    peers: Object.values(peers),
+    connected,
+    broadcastMediaState,
+    replaceVideoTrack,
+    broadcastHandRaise,
+    sendReaction,
+    sendChatMessage,
+  };
 }

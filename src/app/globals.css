@@ -42,3 +42,22 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+
+/* Floating reaction bubbles in the meeting room (see room/[token]/page.tsx) */
+@keyframes float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}

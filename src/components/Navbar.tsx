@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BrandLink } from "./BrandLink";
-import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import { checkAuth, type SessionUser } from "@/lib/auth-client";
 
@@ -34,7 +33,6 @@ export function Navbar() {
     <header className="relative z-10 flex items-center justify-between px-6 py-5 sm:px-10">
       <BrandLink size={22} />
       <div className="flex items-center gap-3">
-        <ThemeToggle />
         {!checking &&
           (user ? (
             <UserMenu user={user} variant="dark" />

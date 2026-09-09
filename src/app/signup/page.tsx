@@ -17,8 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Mail, User } from "lucide-react";
-import { toast } from "sonner";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { toast } from "@/lib/toast";
 import { SignalMotif } from "@/components/SignalMotif";
 import { BrandLink } from "@/components/BrandLink";
 import { PasswordField } from "@/components/PasswordField";
@@ -94,7 +93,6 @@ export default function SignupPage() {
             <BrandLink size={22} />
           </div>
           <div />
-          <ThemeToggle />
         </div>
 
         <div className="mx-auto w-full max-w-sm">

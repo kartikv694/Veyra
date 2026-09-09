@@ -31,7 +31,26 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${display.variable} ${body.variable} h-full antialiased`}
+      suppressHydrationWarning
+    >
+      <head>
+        {/*
+          Runs before React hydrates, so the correct theme class is on
+          <html> for the very first paint — without this, a stored/OS
+          "dark" preference would render light first and visibly flip to
+          dark a moment later on every hard reload, which reads as the
+          toggle being unreliable even though it's actually just a race
+          with hydration.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("theme");var d=t?t==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;if(d)document.documentElement.classList.add("dark");}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-bg text-ink font-body">
         <ThemeProvider>
           <AppToaster />

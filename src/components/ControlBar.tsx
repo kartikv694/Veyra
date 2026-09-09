@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * Bottom control bar for the meeting room: mic, camera, screen share,
+ * reactions, captions, raise hand, participants panel toggle, and leave —
+ * plus, host-only, lock/unlock meeting access, set/change passcode, and
+ * end-meeting-for-everyone (those three live in the room page's own
+ * "More options" menu, not here — see room/[token]/page.tsx).
+ */
+import { useState } from "react";
 import {
   AudioLines,
   Captions,
@@ -16,6 +24,9 @@ import {
   VideoOff,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { toast } from "@/lib/toast";
+
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "👏", "🎉"];
 
 interface ControlBarProps {
   micOn: boolean;
@@ -27,6 +38,11 @@ interface ControlBarProps {
   onScreenShareClick: () => void;
   /** Whether you're currently sharing your screen — highlights the button. */
   sharingScreen?: boolean;
+  /** Whether your own hand is currently raised — highlights the button. */
+  handRaised?: boolean;
+  onToggleHandRaise?: () => void;
+  /** Send a quick emoji reaction to everyone in the meeting. */
+  onReact?: (emoji: string) => void;
   onMoreClick?: () => void;
   onLeave: () => void;
   leaving?: boolean;
@@ -74,12 +90,17 @@ export function ControlBar({
   onToggleParticipants,
   onScreenShareClick,
   sharingScreen = false,
+  handRaised = false,
+  onToggleHandRaise,
+  onReact,
   onMoreClick,
   onLeave,
   leaving = false,
   onChat,
   onTools,
 }: ControlBarProps) {
+  const [reactionsOpen, setReactionsOpen] = useState(false);
+
   return (
     <>
       {/* Google Meet-style bottom control strip */}
@@ -117,15 +138,37 @@ export function ControlBar({
             <ScreenShare size={20} />
           </ControlButton>
 
-          <ControlButton onClick={onTools ?? (() => undefined)} label="Reactions">
-            <Smile size={21} />
-          </ControlButton>
+          <div className="relative">
+            <ControlButton onClick={() => setReactionsOpen((v) => !v)} label="Reactions" active={reactionsOpen}>
+              <Smile size={21} />
+            </ControlButton>
+            {reactionsOpen && (
+              <div className="absolute bottom-14 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[#202124] p-1.5 shadow-2xl ring-1 ring-white/10">
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => {
+                      onReact?.(emoji);
+                      setReactionsOpen(false);
+                    }}
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-lg transition-transform hover:scale-125 hover:bg-white/10"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-          <ControlButton onClick={() => undefined} label="Captions">
+          <ControlButton onClick={() => toast.info("Captions are coming in a later update.")} label="Captions">
             <Captions size={20} />
           </ControlButton>
 
-          <ControlButton onClick={() => undefined} label="Raise hand">
+          <ControlButton
+            onClick={onToggleHandRaise ?? (() => undefined)}
+            label={handRaised ? "Lower hand" : "Raise hand"}
+            active={handRaised}
+          >
             <Hand size={20} />
           </ControlButton>
 
