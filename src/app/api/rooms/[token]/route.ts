@@ -11,7 +11,7 @@
  *
  * Responses:
  *   200  {
- *     meeting: { id, token, createdAt, endAt, hostId, locked },
+ *     meeting: { id, token, createdAt, endAt, hostId, locked, passcodeSet },
  *     participants: [{ userId, name, email, isHost, isMuted, joinedAt, leftAt }]
  *   }
  *   401  { error }  — missing/invalid auth token
@@ -84,6 +84,7 @@ export async function GET(
       endAt: meeting.endAt,
       hostId: meeting.hostId,
       locked: meeting.locked,
+      passcodeSet: meeting.passcode !== null,
     },
 
     participants: meeting.participants.map(

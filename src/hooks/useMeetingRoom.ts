@@ -274,5 +274,33 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:media-state", { micOn, cameraOn });
   }, []);
 
-  return { peers: Object.values(peers), connected, broadcastMediaState };
+  /**
+   * Swaps the outgoing video track on every current peer connection —
+   * what screen sharing is built on. Rather than opening a second video
+   * stream alongside the camera, sharing *replaces* the one outgoing video
+   * track everyone already receives, via RTCRtpSender.replaceTrack. That
+   * keeps the "one video feed per participant" model this app already has
+   * (VideoTile only ever renders one stream per tile); the trade-off is
+   * you can't show your camera and your screen at the same time — sharing
+   * takes over the video slot until you stop.
+   *
+   * Falls back to addTrack for a peer connection that has no video sender
+   * yet (e.g. camera permission was denied so no video track was ever
+   * attached) — otherwise replaceTrack on a connection with no video
+   * sender at all would silently do nothing.
+   */
+  const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
+    Object.values(pcsRef.current).forEach((pc) => {
+      const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
+      if (videoSender) {
+        videoSender.replaceTrack(track).catch(() => {
+          // Benign if the connection closed mid-swap.
+        });
+      } else if (track) {
+        pc.addTrack(track);
+      }
+    });
+  }, []);
+
+  return { peers: Object.values(peers), connected, broadcastMediaState, replaceVideoTrack };
 }

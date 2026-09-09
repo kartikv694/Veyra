@@ -20,18 +20,22 @@
  *     without anyone with host rights present isn't allowed. The host
  *     themself is naturally exempt from this check. A locked meeting
  *     (`Meeting.locked`, toggled via PATCH /api/rooms/[token]/lock) blocks
- *     first-time joins the same way, host-presence or not.
+ *     first-time joins the same way, host-presence or not. If the meeting
+ *     has a passcode set (`Meeting.passcode`, via PATCH
+ *     /api/rooms/[token]/passcode), a matching `passcode` field is also
+ *     required on first-time join.
  *
  * Host identity itself is untouched by any of this — `Meeting.hostId`
  * never changes here. See /api/rooms/leave for why.
  *
  * Request body:
- *   { "token": string }   — the room code, e.g. "7fk-2xa-plm"
+ *   { "token": string, "passcode"?: string }   — passcode only needed if
+ *     the meeting has one set and you're joining for the first time
  *
  * Responses:
  *   200  { meeting: {...}, participant: {...} }
  *   400  { error, details }  — validation failed
- *   401  { error }           — missing/invalid auth token
+ *   401  { error }           — missing/invalid auth token, or wrong passcode
  *   403  { error }           — first-time join attempted while host is absent, or meeting is locked
  *   404  { error }           — no meeting with that token
  *   410  { error }           — meeting has already ended
@@ -46,6 +50,9 @@ export const runtime = "nodejs";
 
 const joinSchema = z.object({
   token: z.string().min(1, "Room token is required"),
+  /** Required only if the meeting has a passcode set — checked alongside
+   *  the locked check below, since both only gate first-time joins. */
+  passcode: z.string().optional(),
 });
 
 // POST /api/rooms/join
@@ -81,6 +88,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "This meeting is locked. Ask the host to let you in." },
         { status: 403 },
+      );
+    }
+
+    if (meeting.passcode !== null && meeting.passcode !== parsed.data.passcode) {
+      return NextResponse.json(
+        { error: "Incorrect meeting passcode." },
+        { status: 401 },
       );
     }
 

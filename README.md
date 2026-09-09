@@ -151,12 +151,21 @@ Two data sources feed the tiles, on purpose kept separate:
   just means they're still connecting; the tile falls back to an
   avatar-initials placeholder automatically.
 
-Screen share is still a stub (toast only) — sharing a captured stream
-needs its own signaling path, which is future work, not because the
-underlying connection doesn't exist anymore. The "active speaker" ring
-(SRS: "Show the current active speaker") is wired into `VideoTile` as a
-`speaking` prop but nothing sets it yet — that needs real audio-level
-analysis on the now-live streams.
+Screen sharing is real: clicking the button captures your screen
+(`getDisplayMedia`) and swaps it in as your outgoing video track on every
+peer connection (`replaceVideoTrack` in `useMeetingRoom`) — everyone else
+just sees your screen where your camera was, no separate signaling path
+needed since it reuses the same video slot. Stopping (via the button or
+the browser's own native "Stop sharing" control) reverts to your camera.
+One video feed per participant at a time is the trade-off — you can't
+show camera and screen simultaneously.
+
+The "active speaker" ring (SRS: "Show the current active speaker") is
+real too, but implemented per-tile rather than centrally: each `VideoTile`
+runs its own Web Audio analysis on whatever `MediaStream` it's showing and
+lights its own ring when that stream's volume clears a threshold — a
+volume reading, not true voice-activity detection, so a loud non-speech
+sound can trigger it too.
 
 ## Real-time signaling & WebRTC
 
@@ -222,14 +231,32 @@ client(s):
   right now.
 
 In the UI, these live in `ParticipantList` (per-row mute/remove buttons,
-visible only to the host, on hover) and `ControlBar` (lock toggle and "End
-for everyone", both host-only).
+visible only to the host, on hover) and the room page's host options menu
+("More options" → lock/unlock, set/change passcode, end for everyone —
+host-only).
 
 The one gap worth knowing about, not papered over: **remove isn't a ban.**
 See the endpoint's own doc comment and the API reference entry above —
 short version, a removed person's `Participant` row still exists, so
 rejoining treats them as returning and lets them straight back in unless
 the meeting is also locked.
+
+## Meeting security
+
+Beyond `locked` (above), meetings can also have an optional **passcode**
+(`Meeting.passcode`, host-set via `PATCH /api/rooms/[token]/passcode`,
+same "only gates first-time joins" rule as `locked`). The reasoning: a
+room token is already unguessable, but a link can get forwarded on by
+someone who didn't mean to grant access — a passcode is a second,
+separately-shared secret for meetings that need that extra layer. The
+dashboard's join form only shows the passcode field once the server's
+first response says one's needed, rather than always showing it.
+
+Also here: **login rate limiting** (`src/lib/rate-limit.ts`) — 10 attempts
+per 15 minutes per IP against `/api/auth/login`, to slow down password
+guessing. It's an in-memory counter, so it only coordinates within a
+single process; noted in the file itself as insufficient for a real
+multi-instance deployment (would need Redis or similar there).
 
 ## Data model
 
@@ -362,8 +389,11 @@ list. Restricted to people who have actually joined this specific meeting.
 ### `POST /api/rooms/join`  *(auth required)*
 **Request**
 ```json
-{ "token": "7fk-2xa-plm" }
+{ "token": "7fk-2xa-plm", "passcode": "letmein" }
 ```
+`passcode` is only needed if the meeting has one set (`passcodeSet` from
+`GET /api/rooms/[token]`) and you're joining for the first time.
+
 **200 response**
 ```json
 {
@@ -372,11 +402,12 @@ list. Restricted to people who have actually joined this specific meeting.
 }
 ```
 `404` if the token doesn't match any meeting, `410` if the meeting has
-already ended. **Returning participants** (anyone who's already joined
-this meeting before, including the host reconnecting) are always let back
-in — this just clears `leftAt`. **First-time joins** are only admitted
-while the host is currently active in the meeting; if the host isn't
-present, a brand-new participant gets `403` until the host returns.
+already ended, `401` if the passcode is missing or wrong. **Returning
+participants** (anyone who's already joined this meeting before,
+including the host reconnecting) are always let back in — this just
+clears `leftAt`. **First-time joins** are only admitted while the host is
+currently active in the meeting (and the meeting isn't locked, and the
+passcode matches if one's set); otherwise `403`/`401` as appropriate.
 
 ### `POST /api/rooms/leave`  *(auth required)*
 **Request**
@@ -414,6 +445,23 @@ SRS: "control meeting access." Doesn't affect anyone already in.
 { "meeting": { "id": 1, "token": "7fk-2xa-plm", "locked": true } }
 ```
 `403` if the caller isn't the host.
+
+### `PATCH /api/rooms/[token]/passcode`  *(auth required, host only)*
+Sets or clears a secondary access secret — SRS: "Meeting Security."
+Same "only gates first-time joins" rule as `locked`.
+
+**Request**
+```json
+{ "passcode": "letmein" }
+```
+Send `{ "passcode": null }` (or `""`) to remove it.
+
+**200 response**
+```json
+{ "meeting": { "id": 1, "token": "7fk-2xa-plm", "passcodeSet": true } }
+```
+`400` if a non-null passcode is under 4 characters, `403` if the caller
+isn't the host.
 
 ### `POST /api/rooms/[token]/participants/[userId]/mute`  *(auth required, host only)*
 Force-mutes another active participant — SRS: "Host can mute participants"
@@ -482,5 +530,8 @@ internal target 9 Sept):
 - [x] **Host controls & participant management** — mute, remove, end
       meeting, lock access; all four push real-time events to affected
       clients instead of waiting for the next roster poll
-- [ ] Screen sharing, meeting security, active speaker detection
+- [x] **Screen sharing, meeting security, active speaker detection** —
+      real `getDisplayMedia` screen share via track-replacement, per-tile
+      Web Audio active-speaker rings, optional meeting passcode, login
+      rate limiting
 - [ ] Optional chat, polish, final test pass

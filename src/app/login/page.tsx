@@ -63,7 +63,7 @@ export default function LoginPage() {
 
       saveSession(data.token, data.user);
       toast.success(`Welcome back, ${data.user.name ?? data.user.email}.`);
-      router.push("/dashboard");
+      router.replace("/dashboard");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {

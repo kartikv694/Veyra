@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BrandMark } from "./BrandMark";
+import BrandMark from "./BrandMark";
 
 interface BrandLinkProps {
   size?: number;

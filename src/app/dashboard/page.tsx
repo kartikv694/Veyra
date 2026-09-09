@@ -19,6 +19,7 @@
  * on a later visit.
  */
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, LogIn, Copy, Check, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -58,6 +59,8 @@ export default function DashboardPage() {
   const [roomLink, setRoomLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  const [joinPasscode, setJoinPasscode] = useState("");
+  const [needsPasscode, setNeedsPasscode] = useState(false);
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
@@ -106,10 +109,18 @@ export default function DashboardPage() {
       const res = await fetch("/api/rooms/join", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ token: joinCode.trim() }),
+        body: JSON.stringify({
+          token: joinCode.trim(),
+          ...(needsPasscode ? { passcode: joinPasscode } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 401 && data.error?.toLowerCase().includes("passcode")) {
+          setNeedsPasscode(true);
+          toast.error(needsPasscode ? "Incorrect passcode." : "This meeting needs a passcode.");
+          return;
+        }
         toast.error(data.error ?? "Couldn't join that meeting.");
         return;
       }
@@ -163,8 +174,19 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-bg">
-      <header className="flex items-center justify-between border-b border-edge px-6 py-4 sm:px-10">
+      <header className="relative flex items-center justify-between border-b border-edge px-6 py-4 sm:px-10">
         <BrandLink size={22} />
+
+        <nav className="absolute left-1/2 -translate-x-1/2" aria-label="Primary navigation">
+          <Link
+            href="/dashboard"
+            aria-current="page"
+            className="rounded-lg px-3 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent/10"
+          >
+            Dashboard
+          </Link>
+        </nav>
+
         <div className="flex items-center gap-4">
           <ThemeToggle />
           <UserMenu user={user} />
@@ -216,10 +238,25 @@ export default function DashboardPage() {
                 type="text"
                 required
                 value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
+                onChange={(e) => {
+                  setJoinCode(e.target.value);
+                  setNeedsPasscode(false);
+                  setJoinPasscode("");
+                }}
                 placeholder="e.g. 7fk-2xa-plm"
                 className="w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
               />
+              {needsPasscode && (
+                <input
+                  type="password"
+                  required
+                  autoFocus
+                  value={joinPasscode}
+                  onChange={(e) => setJoinPasscode(e.target.value)}
+                  placeholder="Meeting passcode"
+                  className="w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                />
+              )}
               <button
                 type="submit"
                 disabled={joining}
@@ -250,7 +287,11 @@ export default function DashboardPage() {
                       {m.endAt ? " · ended" : ""}
                     </p>
                   </div>
-                  {!m.endAt && (
+                  {m.endAt ? (
+                    <span className="shrink-0 rounded-lg border border-edge bg-surface2 px-3 py-1.5 text-xs font-semibold text-muted">
+                      Ended
+                    </span>
+                  ) : (
                     <button
                       onClick={() => router.push(`/room/${m.token}`)}
                       className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs font-semibold transition-colors hover:border-accent hover:text-accent"

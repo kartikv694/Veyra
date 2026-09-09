@@ -30,7 +30,7 @@ export async function POST(
     const { token } = await params;
     const meeting = await prisma.meeting.findUnique({where: {token}});
     if(!meeting) {
-        return NextResponse.json({error: "No meeting with that room code. "}, {status: 403});
+        return NextResponse.json({error: "No meeting with that room code. "}, {status: 404});
     }
 
     if(meeting.hostId !== auth.sub) {
@@ -41,14 +41,29 @@ export async function POST(
         return NextResponse.json({error: "This meeting has Already ended"}, {status: 409});
     }
 
-    const ended  = prisma.meeting.update({
-        where: {id: meeting.id},
-        data : {endAt: new Date()},
+    const ended = await prisma.$transaction(async (tx) => {
+        const endAt = new Date();
+
+        const updatedMeeting = await tx.meeting.update({
+            where: { id: meeting.id },
+            data: { endAt },
+        });
+
+        // Explicitly ending for everyone also closes every currently-active
+        // participant session. A normal Leave action does NOT end the room.
+        await tx.participants.updateMany({
+            where: { meetingId: meeting.id, leftAt: null },
+            data: { leftAt: endAt },
+        });
+
+        return updatedMeeting;
     });
 
+    // The database is authoritative. The socket event is a best-effort
+    // immediate notification; clients also detect endAt through roster polling.
     emitToMeeting(token, "meeting:ended");
 
     return NextResponse.json({
-        meeting: {id: ended.id, token: ended.token , endAt: ended.endAt },
+        meeting: { id: ended.id, token: ended.token, endAt: ended.endAt },
     });
 }

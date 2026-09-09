@@ -1,15 +1,20 @@
 "use client";
 
-/**
- * Bottom control bar for the meeting room: mic, camera, screen share,
- * participants panel toggle, and leave — plus, host-only, lock/unlock
- * meeting access and end-meeting-for-everyone.
- *
- * Screen share is a stub — clicking it just informs the caller (via
- * `onScreenShareClick`) rather than doing anything, since real screen
- * sharing needs its own signaling path beyond what's built so far.
- */
-import { Mic, MicOff, Video, VideoOff, ScreenShare, Users, PhoneOff, Lock, LockOpen } from "lucide-react";
+import {
+  AudioLines,
+  Captions,
+  ChevronUp,
+  Hand,
+  Mic,
+  MicOff,
+  MoreVertical,
+  PhoneOff,
+  ScreenShare,
+  Smile,
+  Users,
+  Video,
+  VideoOff,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 interface ControlBarProps {
@@ -20,25 +25,26 @@ interface ControlBarProps {
   onToggleCamera: () => void;
   onToggleParticipants: () => void;
   onScreenShareClick: () => void;
+  /** Whether you're currently sharing your screen — highlights the button. */
+  sharingScreen?: boolean;
+  onMoreClick?: () => void;
   onLeave: () => void;
   leaving?: boolean;
-  /** Renders the lock toggle and "End meeting" button when true. */
-  isHost?: boolean;
-  locked?: boolean;
-  onToggleLock?: () => void;
-  onEndMeeting?: () => void;
-  ending?: boolean;
+  onChat?: () => void;
+  onTools?: () => void;
 }
 
 function ControlButton({
-  active,
   onClick,
   label,
+  active = false,
+  danger = false,
   children,
 }: {
-  active?: boolean;
   onClick: () => void;
   label: string;
+  active?: boolean;
+  danger?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -46,10 +52,12 @@ function ControlButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${
-        active
-          ? "bg-white/10 text-white hover:bg-white/15"
-          : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80"
+      className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/30 ${
+        danger
+          ? "bg-[#ea4335] text-white hover:bg-[#d93025]"
+          : active
+            ? "bg-[#8ab4f8] text-[#202124] hover:bg-[#a8c7fa]"
+            : "bg-[#3c4043] text-white hover:bg-[#4a4d50]"
       }`}
     >
       {children}
@@ -65,65 +73,92 @@ export function ControlBar({
   onToggleCamera,
   onToggleParticipants,
   onScreenShareClick,
+  sharingScreen = false,
+  onMoreClick,
   onLeave,
   leaving = false,
-  isHost = false,
-  locked = false,
-  onToggleLock,
-  onEndMeeting,
-  ending = false,
+  onChat,
+  onTools,
 }: ControlBarProps) {
   return (
-    <div className="flex items-center justify-center gap-3 border-t border-white/10 bg-[#0F1115] px-6 py-4">
-      <ControlButton active={micOn} onClick={onToggleMic} label={micOn ? "Mute microphone" : "Unmute microphone"}>
-        {micOn ? <Mic size={18} /> : <MicOff size={18} />}
-      </ControlButton>
+    <>
+      {/* Google Meet-style bottom control strip */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-4 sm:pb-5">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-[#202124]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,.45)] backdrop-blur-xl sm:gap-2 sm:p-2">
+          <div
+            aria-label="Speaking activity"
+            title="Speaking activity"
+            className="hidden h-12 w-10 items-center justify-center rounded-full text-[#8ab4f8] sm:flex"
+          >
+            <AudioLines size={19} className="animate-pulse" />
+          </div>
 
-      <ControlButton active={cameraOn} onClick={onToggleCamera} label={cameraOn ? "Turn off camera" : "Turn on camera"}>
-        {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
-      </ControlButton>
+          <ControlButton onClick={onToggleMic} label={micOn ? "Turn off microphone" : "Turn on microphone"} active={micOn}>
+            {micOn ? <Mic size={21} /> : <MicOff size={21} />}
+          </ControlButton>
 
-      <ControlButton onClick={onScreenShareClick} label="Share screen">
-        <ScreenShare size={18} />
-      </ControlButton>
+          <button
+            aria-label="Microphone settings"
+            title="Microphone settings"
+            className="hidden h-12 w-7 items-center justify-center rounded-full text-white/75 hover:bg-white/10 sm:flex"
+          >
+            <ChevronUp size={16} />
+          </button>
 
-      <ControlButton active={participantsOpen} onClick={onToggleParticipants} label="Participants">
-        <Users size={18} />
-      </ControlButton>
+          <ControlButton onClick={onToggleCamera} label={cameraOn ? "Turn off camera" : "Turn on camera"} active={cameraOn}>
+            {cameraOn ? <Video size={21} /> : <VideoOff size={21} />}
+          </ControlButton>
 
-      {isHost && onToggleLock && (
-        <ControlButton
-          active={locked}
-          onClick={onToggleLock}
-          label={locked ? "Unlock meeting (allow new participants)" : "Lock meeting (block new participants)"}
-        >
-          {locked ? <Lock size={18} /> : <LockOpen size={18} />}
-        </ControlButton>
-      )}
+          <ControlButton
+            onClick={onScreenShareClick}
+            label={sharingScreen ? "Stop sharing your screen" : "Share screen"}
+            active={sharingScreen}
+          >
+            <ScreenShare size={20} />
+          </ControlButton>
 
-      <button
-        onClick={onLeave}
-        disabled={leaving}
-        aria-label="Leave meeting"
-        title="Leave meeting"
-        className="flex h-11 items-center gap-2 rounded-full bg-white/10 px-5 text-sm font-semibold text-white transition-colors hover:bg-white/15 disabled:opacity-60"
-      >
-        <PhoneOff size={16} />
-        {leaving ? "Leaving..." : "Leave"}
-      </button>
+          <ControlButton onClick={onTools ?? (() => undefined)} label="Reactions">
+            <Smile size={21} />
+          </ControlButton>
 
-      {isHost && onEndMeeting && (
-        <button
-          onClick={onEndMeeting}
-          disabled={ending}
-          aria-label="End meeting for everyone"
-          title="End meeting for everyone"
-          className="flex h-11 items-center gap-2 rounded-full bg-red-500/90 px-5 text-sm font-semibold text-white transition-colors hover:bg-red-500 disabled:opacity-60"
-        >
-          <PhoneOff size={16} />
-          {ending ? "Ending..." : "End for everyone"}
+          <ControlButton onClick={() => undefined} label="Captions">
+            <Captions size={20} />
+          </ControlButton>
+
+          <ControlButton onClick={() => undefined} label="Raise hand">
+            <Hand size={20} />
+          </ControlButton>
+
+          <ControlButton onClick={onMoreClick ?? (() => undefined)} label="More options">
+            <MoreVertical size={21} />
+          </ControlButton>
+
+          <button
+            onClick={onLeave}
+            disabled={leaving}
+            aria-label="Leave meeting"
+            title="Leave meeting"
+            className="ml-1 flex h-12 min-w-16 items-center justify-center rounded-full bg-[#ea4335] px-5 text-white transition hover:bg-[#d93025] disabled:cursor-wait disabled:opacity-60 sm:min-w-20"
+          >
+            <PhoneOff size={21} />
+          </button>
+        </div>
+      </div>
+
+      {/* Meet-style utility buttons on the lower-right */}
+      <div className="absolute bottom-5 right-4 z-30 hidden items-center gap-1 rounded-full bg-[#202124]/90 p-1.5 shadow-xl ring-1 ring-white/5 md:flex">
+        <button onClick={onChat ?? (() => undefined)} aria-label="Chat" title="Chat" className="flex h-11 w-11 items-center justify-center rounded-full text-white/90 hover:bg-white/10">
+          <span className="text-[18px]">▤</span>
         </button>
-      )}
-    </div>
+        <button onClick={onTools ?? (() => undefined)} aria-label="Meeting tools" title="Meeting tools" className="flex h-11 w-11 items-center justify-center rounded-full text-white/90 hover:bg-white/10">
+          <span className="grid grid-cols-3 gap-1">
+            {Array.from({ length: 9 }).map((_, i) => <span key={i} className="h-1.5 w-1.5 rounded-sm bg-current" />)}
+          </span>
+        </button>
+        <button onClick={onToggleParticipants} aria-label="People" title="People" className={`flex h-11 w-11 items-center justify-center rounded-full ${participantsOpen ? "bg-white text-black" : "text-white/90 hover:bg-white/10"}`}>
+          <Users size={19} />
+        </button>
+      </div>
+    </>
   );
 }

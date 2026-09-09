@@ -98,6 +98,15 @@ model Meeting {
   /// currently present. Doesn't affect anyone already in the meeting.
   locked Boolean @default(false)
 
+  /// Optional secondary access gate (SRS: "Meeting Security"). When set,
+  /// a first-time joiner must supply the matching passcode in their
+  /// POST /api/rooms/join request — a meeting can be secured this way
+  /// even for someone who has the room link/token, since a link can be
+  /// forwarded on without the sender meaning to grant access. `null` means
+  /// no passcode is required. Like `locked`, only gates first-time joins;
+  /// returning participants are never asked for it again.
+  passcode String?
+
   /// Last time this record was modified. Maintained automatically by Prisma.
   updatedAt DateTime @updatedAt
 }
@@ -144,3 +153,4 @@ model Participants {
   /// meeting — prevents duplicate join records for the same user+meeting.
   @@unique([meetingId, userId])
 }
+

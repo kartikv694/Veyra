@@ -1,28 +1,22 @@
 "use client";
 
-/**
- * /room/[token] — the meeting room screen.
- *
- * Two data sources feed this page, deliberately kept separate:
- *   - The DB roster (GET /api/rooms/[token], polled periodically) is the
- *     durable "who's actually a participant" list — used for the
- *     participant panel, host badges, and detecting when the meeting ends.
- *   - `useMeetingRoom` (Socket.IO signaling + WebRTC) is the live,
- *     ephemeral layer — who's actually connected *right now* and their
- *     real audio/video streams. A roster entry without a live peer yet
- *     just means their connection hasn't finished negotiating.
- *
- * Auth-guarded like /dashboard: checkAuth() must succeed before anything
- * renders, and GET /api/rooms/[token] independently confirms the caller is
- * actually a participant in *this* meeting (not just logged in generally).
- * The socket connection re-verifies this same thing server-side (see
- * socket-server/server.ts) — a valid page load doesn't imply a valid socket connection.
- */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import {
+  Captions,
+  Grid3X3,
+  Info,
+  KeyRound,
+  Languages,
+  Lock,
+  LockOpen,
+  MessageSquare,
+  Send,
+  Smile,
+  Timer,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
-import { BrandLink } from "@/components/BrandLink";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
 import { ParticipantList, type ParticipantRow } from "@/components/ParticipantList";
@@ -30,6 +24,162 @@ import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
 import { useMeetingRoom } from "@/hooks/useMeetingRoom";
 
 const ROSTER_POLL_MS = 8000;
+
+type Panel = "people" | "chat" | "tools" | null;
+
+function confirmToast(message: string, confirmLabel: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean, id: string | number) => {
+      if (settled) return;
+      settled = true;
+      toast.dismiss(id);
+      resolve(value);
+    };
+    const id = toast(message, {
+      duration: Infinity,
+      action: { label: confirmLabel, onClick: () => finish(true, id) },
+      cancel: { label: "Cancel", onClick: () => finish(false, id) },
+      onDismiss: () => {
+        if (!settled) {
+          settled = true;
+          resolve(false);
+        }
+      },
+    });
+  });
+}
+
+function formatTime(date: Date) {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function MeetingPanel({
+  panel,
+  participants,
+  viewerIsHost,
+  onClose,
+  onMute,
+  onRemove,
+  message,
+  setMessage,
+}: {
+  panel: Panel;
+  participants: ParticipantRow[];
+  viewerIsHost: boolean;
+  onClose: () => void;
+  onMute: (userId: number) => void;
+  onRemove: (userId: number) => void;
+  message: string;
+  setMessage: (value: string) => void;
+}) {
+  if (!panel) return null;
+
+  return (
+    <aside className="absolute inset-y-2 right-2 z-30 flex w-[min(360px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-[#202124] shadow-2xl ring-1 ring-white/10 sm:inset-y-3 sm:right-3">
+      {panel === "people" && (
+        <ParticipantList
+          open
+          participants={participants}
+          onClose={onClose}
+          viewerIsHost={viewerIsHost}
+          onMute={onMute}
+          onRemove={onRemove}
+        />
+      )}
+
+      {panel === "chat" && (
+        <div className="flex h-full flex-col text-white">
+          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+            <h2 className="text-xl font-medium">In-call messages</h2>
+            <button onClick={onClose} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Close chat">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex flex-1 flex-col justify-between p-4">
+            <div className="rounded-xl bg-[#2b2c30] p-4 text-sm text-white/75">
+              <div className="mb-2 flex items-center gap-2 font-medium text-white">
+                <MessageSquare size={16} />
+                Meeting chat
+              </div>
+              <p className="leading-6 text-white/55">
+                Send a message to people in this meeting. Chat delivery can be connected to Socket.IO when the messaging feature is enabled.
+              </p>
+            </div>
+
+            <div className="rounded-full border border-white/15 bg-[#1a1b1e] px-4 py-2">
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!message.trim()) return;
+                  toast.success("Message UI is ready; realtime chat is not enabled yet.");
+                  setMessage("");
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="Send a message"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+                />
+                <button type="button" aria-label="Add reaction" className="rounded-full p-1.5 text-white/50 hover:text-white">
+                  <Smile size={18} />
+                </button>
+                <button type="submit" aria-label="Send message" className="rounded-full p-1.5 text-white/50 hover:text-white">
+                  <Send size={18} />
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {panel === "tools" && (
+        <div className="flex h-full flex-col text-white">
+          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+            <h2 className="text-xl font-medium">Meeting tools</h2>
+            <button onClick={onClose} className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white" aria-label="Close tools">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-4 flex gap-2 border-b border-white/10 pb-3 text-sm">
+              <span className="border-b-2 border-white px-3 pb-3 font-medium">Tools</span>
+              <span className="px-3 pb-3 text-white/45">Add-ons</span>
+            </div>
+            <div className="space-y-3">
+              <button className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]">
+                <Languages className="text-violet-300" size={21} />
+                <span className="flex-1"><strong className="block text-sm font-medium">Speech translation</strong><small className="text-white/45">Translate spoken audio</small></span>
+                <span className="text-white/35">›</span>
+              </button>
+              <button className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]">
+                <Timer className="text-purple-300" size={21} />
+                <span className="flex-1"><strong className="block text-sm font-medium">Timer</strong><small className="text-white/45">Show a countdown timer</small></span>
+                <span className="text-white/35">›</span>
+              </button>
+              <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-white/10 p-4 text-white/55"><Captions size={19} className="mb-3" /><span className="text-sm">Captions</span></div>
+                <div className="rounded-2xl border border-white/10 p-4 text-white/55"><Grid3X3 size={19} className="mb-3" /><span className="text-sm">Layout</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
 
 export default function RoomPage() {
   const router = useRouter();
@@ -39,34 +189,31 @@ export default function RoomPage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [me, setMe] = useState<SessionUser | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
-
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(true);
-  const [participantsOpen, setParticipantsOpen] = useState(true);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [message, setMessage] = useState("");
   const [leaving, setLeaving] = useState(false);
   const [ending, setEnding] = useState(false);
   const [locked, setLocked] = useState(false);
-
+  const [passcodeSet, setPasscodeSet] = useState(false);
+  const [sharingScreen, setSharingScreen] = useState(false);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const streamRef = useRef<MediaStream | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
-  /** Stops local media and sends the browser back to the dashboard — the
-   *  shared last step whether you left voluntarily, got removed by the
-   *  host, or the host ended the meeting. */
   const exitToDashboard = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
     router.push("/dashboard");
   }, [router]);
 
-  // The real-time layer: Socket.IO signaling + a WebRTC peer connection per
-  // other participant currently connected. `participants` (below) is the
-  // durable DB roster used for the panel and host badges; `peers` is the
-  // live, ephemeral set of who's actually connected right now, with real
-  // media streams once each connection completes.
-  const { peers, connected, broadcastMediaState } = useMeetingRoom(token, localStream, me?.id ?? null, {
+  const { peers, connected, broadcastMediaState, replaceVideoTrack } = useMeetingRoom(token, localStream, me?.id ?? null, {
     onForceMuted: () => {
-      const stream = streamRef.current;
-      stream?.getAudioTracks().forEach((t) => (t.enabled = false));
+      streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
       setMicOn(false);
       toast.info("The host muted you.");
     },
@@ -91,17 +238,21 @@ export default function RoomPage() {
     }
     const data = await res.json();
     setParticipants(data.participants);
-    setLocked(data.meeting.locked);
+    setLocked(Boolean(data.meeting.locked));
+    setPasscodeSet(Boolean(data.meeting.passcodeSet));
     if (data.meeting.endAt) {
       toast.info("This meeting has ended.");
       router.push("/dashboard");
     }
   }, [token, router]);
 
-  // Auth guard, then acquire local camera/mic and start polling the roster.
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-
     (async () => {
       const user = await checkAuth();
       if (cancelled) return;
@@ -113,26 +264,23 @@ export default function RoomPage() {
       setMe(user);
       setCheckingAuth(false);
       await loadRoster();
-
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
         streamRef.current = stream;
         setLocalStream(stream);
       } catch {
-        // No camera/mic permission — fall back to the avatar tile silently;
-        // toggling mic/camera below just no-ops without a stream.
         setCameraOn(false);
         setMicOn(false);
+        toast.warning("Camera or microphone access was unavailable. You can still join the meeting.");
       }
     })();
-
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -147,7 +295,7 @@ export default function RoomPage() {
     const stream = streamRef.current;
     if (!stream) return;
     const next = !micOn;
-    stream.getAudioTracks().forEach((t) => (t.enabled = next));
+    stream.getAudioTracks().forEach((track) => (track.enabled = next));
     setMicOn(next);
     broadcastMediaState(next, cameraOn);
   };
@@ -156,21 +304,50 @@ export default function RoomPage() {
     const stream = streamRef.current;
     if (!stream) return;
     const next = !cameraOn;
-    stream.getVideoTracks().forEach((t) => (t.enabled = next));
+    stream.getVideoTracks().forEach((track) => (track.enabled = next));
     setCameraOn(next);
     broadcastMediaState(micOn, next);
   };
 
-  // A newly-connected peer has no way of knowing our mic/camera state until
-  // we tell them — re-announce it whenever the live peer set grows.
   const peerCount = peers.length;
   useEffect(() => {
     if (connected) broadcastMediaState(micOn, cameraOn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peerCount, connected]);
 
-  const handleScreenShareClick = () => {
-    toast.info("Screen sharing arrives in a later task.");
+  const stopScreenShare = useCallback(() => {
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
+    setScreenStream(null);
+    setSharingScreen(false);
+    const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
+    replaceVideoTrack(cameraTrack);
+    broadcastMediaState(micOn, cameraOn);
+  }, [replaceVideoTrack, broadcastMediaState, micOn, cameraOn]);
+
+  const handleScreenShareClick = async () => {
+    if (sharingScreen) {
+      stopScreenShare();
+      toast.info("Stopped sharing your screen.");
+      return;
+    }
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = display.getVideoTracks()[0];
+      screenStreamRef.current = display;
+      setScreenStream(display);
+      setSharingScreen(true);
+      replaceVideoTrack(screenTrack);
+      // Treat sharing as "video on" for everyone else regardless of the
+      // actual camera toggle, so their tile renders the shared frames
+      // instead of falling back to the avatar.
+      broadcastMediaState(micOn, true);
+      // The browser's own native "Stop sharing" control also needs to revert us.
+      screenTrack.onended = stopScreenShare;
+      toast.success("Sharing your screen.");
+    } catch {
+      // Picker cancelled, or permission denied — not worth an error toast.
+    }
   };
 
   const handleLeave = async () => {
@@ -197,37 +374,25 @@ export default function RoomPage() {
 
   const handleMuteParticipant = async (userId: number) => {
     try {
-      const res = await fetch(`/api/rooms/${token}/participants/${userId}/mute`, {
-        method: "POST",
-        headers: authHeaders(),
-      });
+      const res = await fetch(`/api/rooms/${token}/participants/${userId}/mute`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Couldn't mute that participant.");
-        return;
-      }
+      if (!res.ok) return toast.error(data.error ?? "Couldn't mute that participant.");
       toast.success("Participant muted.");
+      await loadRoster();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
   };
 
   const handleRemoveParticipant = async (userId: number) => {
-    const target = participants.find((p) => p.userId === userId);
-    if (!window.confirm(`Remove ${target?.name ?? "this participant"} from the meeting?`)) return;
-
+    const target = participants.find((participant) => participant.userId === userId);
+    if (!(await confirmToast(`Remove ${target?.name ?? "this participant"} from the meeting?`, "Remove"))) return;
     try {
-      const res = await fetch(`/api/rooms/${token}/participants/${userId}/remove`, {
-        method: "POST",
-        headers: authHeaders(),
-      });
+      const res = await fetch(`/api/rooms/${token}/participants/${userId}/remove`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Couldn't remove that participant.");
-        return;
-      }
+      if (!res.ok) return toast.error(data.error ?? "Couldn't remove that participant.");
       toast.success("Participant removed.");
-      loadRoster();
+      await loadRoster();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -242,30 +407,43 @@ export default function RoomPage() {
         body: JSON.stringify({ locked: next }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Couldn't change meeting access.");
-        return;
-      }
+      if (!res.ok) return toast.error(data.error ?? "Couldn't change meeting access.");
       setLocked(next);
-      toast.success(next ? "Meeting locked — no new participants can join." : "Meeting unlocked.");
+      toast.success(next ? "Meeting locked — new participants can't join." : "Meeting unlocked.");
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleSetPasscode = async () => {
+    const input = window.prompt(
+      passcodeSet
+        ? "Change the meeting passcode (leave blank to remove it):"
+        : "Set a meeting passcode (at least 4 characters):",
+    );
+    if (input === null) return; // cancelled
+    try {
+      const res = await fetch(`/api/rooms/${token}/passcode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ passcode: input.trim() === "" ? null : input.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) return toast.error(data.error ?? "Couldn't update the passcode.");
+      setPasscodeSet(data.meeting.passcodeSet);
+      toast.success(data.meeting.passcodeSet ? "Passcode set." : "Passcode removed.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
   };
 
   const handleEndMeeting = async () => {
-    if (!window.confirm("End this meeting for everyone?")) return;
+    if (!(await confirmToast("End this meeting for everyone?", "End for everyone"))) return;
     setEnding(true);
     try {
-      const res = await fetch(`/api/rooms/${token}/end`, {
-        method: "POST",
-        headers: authHeaders(),
-      });
+      const res = await fetch(`/api/rooms/${token}/end`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Couldn't end the meeting.");
-        return;
-      }
+      if (!res.ok) return toast.error(data.error ?? "Couldn't end the meeting.");
       toast.success("Meeting ended for everyone.");
       exitToDashboard();
     } catch {
@@ -275,83 +453,112 @@ export default function RoomPage() {
     }
   };
 
-  if (checkingAuth || !me) {
-    return <div className="min-h-screen bg-[#0F1115]" />;
-  }
+  const setActivePanel = (next: Panel) => setPanel((current) => (current === next ? null : next));
 
-  const others = participants.filter((p) => p.userId !== me.id && !p.leftAt);
-  const myRow = participants.find((p) => p.userId === me.id);
-  const liveByUserId = new Map(peers.map((p) => [p.userId, p]));
+  const myRow = participants.find((participant) => participant.userId === me?.id);
+  const others = participants.filter((participant) => participant.userId !== me?.id && !participant.leftAt);
+  const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);
+  const totalTiles = others.length + 1;
+  const activeParticipantCount = others.length + 1;
+
+  if (checkingAuth || !me) return <div className="min-h-screen bg-[#0f1012]" />;
 
   return (
-    <div className="flex h-screen flex-col bg-[#0F1115] text-white">
-      <header className="flex items-center justify-between border-b border-white/10 px-6 py-3">
-        <div className="flex items-center gap-2">
-          <BrandLink size={20} textClassName="font-display text-sm font-semibold" />
-          <span className="ml-3 rounded-full bg-white/10 px-2.5 py-1 text-xs text-white/60">{token}</span>
-          <span
-            className={`ml-1 h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-white/20"}`}
-            title={connected ? "Connected" : "Connecting..."}
-          />
-          {locked && (
-            <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-1 text-xs text-amber-300">Locked</span>
-          )}
+    <div className="relative h-dvh overflow-hidden bg-[#0f1012] text-white">
+      <header className="absolute inset-x-0 top-0 z-20 flex h-16 items-center justify-between px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="text-sm font-medium text-white sm:text-base">{formatTime(now)}</span>
+          <span className="text-white/35">|</span>
+          <span className="max-w-[180px] truncate text-sm font-medium text-white/85 sm:max-w-none">{token}</span>
+          <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-amber-400"}`} title={connected ? "Connected" : "Connecting"} />
         </div>
-        <ThemeToggle />
+
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 rounded-full bg-white/[0.06] pl-1.5 pr-2.5 py-1">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xs font-semibold">{initials(me.name ?? me.email)}</div>
+            <span className="text-xs font-medium text-white/75">{activeParticipantCount}</span>
+          </div>
+        </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <main className="flex h-full items-center justify-center px-3 pb-20 pt-14 sm:px-5 sm:pb-24 sm:pt-16">
+        <div className={`${totalTiles === 1 ? "flex w-[min(1200px,calc(100vw-24px))] max-w-[1200px] aspect-video items-center justify-center" : "grid h-[calc(100dvh-128px)] w-full auto-rows-fr gap-2 sm:gap-3"} ${
+          totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
+        }`}>
+          <div className={totalTiles === 1 ? "h-full w-full" : "contents"}>
             <VideoTile
               name={`${me.name ?? me.email} (You)`}
               isHost={myRow?.isHost ?? false}
               isMuted={!micOn}
-              cameraOn={cameraOn}
-              stream={localStream}
+              cameraOn={sharingScreen ? true : cameraOn}
+              stream={sharingScreen ? screenStream : localStream}
+              isLocal
             />
-            {others.map((p) => {
-              const live = liveByUserId.get(p.userId);
-              return (
-                <VideoTile
-                  key={p.userId}
-                  name={p.name}
-                  isHost={p.isHost}
-                  isMuted={live ? !live.micOn : p.isMuted}
-                  cameraOn={live ? live.cameraOn : false}
-                  stream={live?.stream ?? null}
-                />
-              );
-            })}
           </div>
-        </main>
+          {others.map((participant) => {
+            const live = liveByUserId.get(participant.userId);
+            return (
+              <VideoTile
+                key={participant.userId}
+                name={participant.name}
+                isHost={participant.isHost}
+                isMuted={live ? !live.micOn : participant.isMuted}
+                cameraOn={live ? live.cameraOn : false}
+                stream={live?.stream ?? null}
+              />
+            );
+          })}
+        </div>
+      </main>
 
-        <ParticipantList
-          open={participantsOpen}
-          participants={participants}
-          onClose={() => setParticipantsOpen(false)}
-          viewerIsHost={myRow?.isHost ?? false}
-          onMute={handleMuteParticipant}
-          onRemove={handleRemoveParticipant}
-        />
-      </div>
+      {menuOpen && (
+        <div className="absolute bottom-24 left-1/2 z-40 w-72 -translate-x-1/2 rounded-2xl border border-white/10 bg-[#202124] p-2 shadow-2xl sm:bottom-24">
+          {myRow?.isHost && (
+            <>
+              <button onClick={() => { void handleToggleLock(); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10">
+                {locked ? <LockOpen size={18} /> : <Lock size={18} />}
+                <span>{locked ? "Unlock meeting" : "Lock meeting"}</span>
+              </button>
+              <button onClick={() => { void handleSetPasscode(); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10">
+                <KeyRound size={18} />
+                <span>{passcodeSet ? "Change passcode" : "Set a passcode"}</span>
+              </button>
+              <button onClick={() => { void handleEndMeeting(); setMenuOpen(false); }} disabled={ending} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-60">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs">×</span>
+                <span>{ending ? "Ending meeting…" : "End meeting for everyone"}</span>
+              </button>
+            </>
+          )}
+          <button onClick={() => { handleScreenShareClick(); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10"><Captions size={18} /><span>More meeting options</span></button>
+        </div>
+      )}
 
       <ControlBar
         micOn={micOn}
         cameraOn={cameraOn}
-        participantsOpen={participantsOpen}
+        participantsOpen={panel === "people"}
         onToggleMic={toggleMic}
         onToggleCamera={toggleCamera}
-        onToggleParticipants={() => setParticipantsOpen((v) => !v)}
+        onToggleParticipants={() => setActivePanel("people")}
         onScreenShareClick={handleScreenShareClick}
+        onMoreClick={() => setMenuOpen((value) => !value)}
         onLeave={handleLeave}
         leaving={leaving}
-        isHost={myRow?.isHost ?? false}
-        locked={locked}
-        onToggleLock={handleToggleLock}
-        onEndMeeting={handleEndMeeting}
-        ending={ending}
+        onChat={() => setActivePanel("chat")}
+        onTools={() => setActivePanel("tools")}
       />
+
+      <MeetingPanel
+        panel={panel}
+        participants={participants}
+        viewerIsHost={myRow?.isHost ?? false}
+        onClose={() => setPanel(null)}
+        onMute={handleMuteParticipant}
+        onRemove={handleRemoveParticipant}
+        message={message}
+        setMessage={setMessage}
+      />
+
     </div>
   );
 }

@@ -314,6 +314,38 @@
           }
         },
         {
+          "name": "Set passcode",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"passcode\": \"letmein\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/rooms/{{roomToken}}/passcode",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rooms",
+                "{{roomToken}}",
+                "passcode"
+              ]
+            }
+          }
+        },
+        {
           "name": "Mute participant",
           "request": {
             "method": "POST",

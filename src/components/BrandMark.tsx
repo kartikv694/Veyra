@@ -21,3 +21,5 @@ export function BrandMark({ size = 20, className = "" }: BrandMarkProps) {
     />
   );
 }
+
+export default BrandMark;

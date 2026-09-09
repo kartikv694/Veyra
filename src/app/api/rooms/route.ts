@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const created = await tx.meeting.create({
       data: { token, hostId: auth.sub },
     });
-    await tx.participant.create({
+    await tx.participants.create({
       data: { meetingId: created.id, userId: auth.sub, isHost: true },
     });
     return created;

@@ -24,7 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import z from "zod";
 
-export const runtme = "nodejs";
+export const runtime = "nodejs";
 
 const lockSchema = z.object({locked: z.boolean() }); 
 
