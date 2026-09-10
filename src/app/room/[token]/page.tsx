@@ -22,7 +22,10 @@ import {
   VideoOff,
   X,
 } from "lucide-react";
+<<<<<<< HEAD
 import { BrandLink } from "@/components/BrandLink";
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 import { toast, confirmToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
@@ -271,6 +274,7 @@ export default function RoomPage() {
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [showShareWarning, setShowShareWarning] = useState(false);
+<<<<<<< HEAD
   // Lazy initializer runs synchronously during the very first render, on
   // the client — reading window.location.search here (rather than in a
   // useEffect that runs after mount) removes any timing gap where a
@@ -280,6 +284,8 @@ export default function RoomPage() {
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fresh") === "1",
   );
   const [linkCopied, setLinkCopied] = useState(false);
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   const [handRaised, setHandRaised] = useState(false);
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionText, setCaptionText] = useState("");
@@ -305,6 +311,7 @@ export default function RoomPage() {
     [router, token],
   );
 
+<<<<<<< HEAD
   const {
     peers,
     connected,
@@ -316,6 +323,9 @@ export default function RoomPage() {
     sendReaction,
     sendChatMessage,
   } = useMeetingRoom(
+=======
+  const { peers, connected, broadcastMediaState, replaceVideoTrack, broadcastHandRaise, sendReaction, sendChatMessage } = useMeetingRoom(
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
     token,
     localStream,
     me?.id ?? null,
@@ -338,7 +348,10 @@ export default function RoomPage() {
         setChatMessages((prev) => [...prev, { id: `${msg.at}-${msg.fromUserId}-${Math.random()}`, ...msg }]);
       },
     },
+<<<<<<< HEAD
     joined,
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   );
 
   const loadRoster = useCallback(async () => {
@@ -358,6 +371,7 @@ export default function RoomPage() {
       exitMeeting("ended");
     }
   }, [token, exitMeeting]);
+<<<<<<< HEAD
 
   /**
    * What the lobby's "Join now" button actually does: calls the real join
@@ -391,6 +405,8 @@ export default function RoomPage() {
       setJoiningRoom(false);
     }
   };
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
@@ -581,6 +597,7 @@ export default function RoomPage() {
       }
     };
     recognition.onend = () => {
+<<<<<<< HEAD
       if (recognitionRef.current) {
         try {
           recognition.start();
@@ -598,6 +615,11 @@ export default function RoomPage() {
       toast.error("Couldn't start captions — try toggling them off and on again.");
       return;
     }
+=======
+      if (recognitionRef.current) recognition.start();
+    };
+    recognition.start();
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
     recognitionRef.current = recognition;
     setCaptionsOn(true);
     toast.success("Captions on — captioning your own speech.");
@@ -679,8 +701,15 @@ export default function RoomPage() {
     screenStreamRef.current = null;
     setSharingScreen(false);
     setScreenStream(null);
+<<<<<<< HEAD
     broadcastScreenShareState(false);
   }, [removeScreenShareTrack, broadcastScreenShareState]);
+=======
+    const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
+    replaceVideoTrack(cameraTrack);
+    broadcastMediaState(micOn, cameraOn);
+  }, [replaceVideoTrack, broadcastMediaState, micOn, cameraOn]);
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 
   const startScreenShare = async () => {
     setShowShareWarning(false);
@@ -700,6 +729,7 @@ export default function RoomPage() {
       screenStreamRef.current = display;
       setSharingScreen(true);
       setScreenStream(display);
+<<<<<<< HEAD
       // A genuinely separate sender, not a replacement for the camera
       // track — this is what makes the screen show up as its own tile
       // for everyone else (matching Meet), with your camera still
@@ -707,6 +737,13 @@ export default function RoomPage() {
       // over your camera's slot.
       addScreenShareTrack(screenTrack, display);
       broadcastScreenShareState(true);
+=======
+      replaceVideoTrack(screenTrack);
+      // Treat sharing as "video on" for everyone else regardless of the
+      // actual camera toggle, so their tile renders the shared frames
+      // instead of falling back to the avatar.
+      broadcastMediaState(micOn, true);
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
       // The browser's own native "Stop sharing" control also needs to revert us.
       screenTrack.onended = stopScreenShare;
       toast.success("Sharing your screen.");
@@ -840,6 +877,7 @@ export default function RoomPage() {
   const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);
   const totalTiles = others.length + 1;
   const spotlightFeatured = others.find((p) => p.isHost) ?? others[0] ?? null;
+<<<<<<< HEAD
   // Whoever's screen should be the big tile right now — either mine, or
   // the first other participant currently sharing theirs. Meet only ever
   // shows one screen share at a time in practice, so "first" is fine.
@@ -852,6 +890,8 @@ export default function RoomPage() {
       ? (liveByUserId.get(remotePresenter.userId)?.screenStream ?? null)
       : null;
   const presentingName = sharingScreen ? "Your screen" : remotePresenter ? `${remotePresenter.name}'s screen` : "";
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   const activeParticipantCount = others.length + 1;
 
   if (checkingAuth || !me) return <div className="min-h-screen bg-[#0f1012]" />;
@@ -936,16 +976,32 @@ export default function RoomPage() {
         </div>
       </header>
 
+<<<<<<< HEAD
       <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
         {presentingStream ? (
           <>
             {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
             <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} />
             {/* Floating camera thumbnails — fixed pixel size, absolutely
+=======
+      <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-black sm:top-20 sm:bottom-28">
+        {sharingScreen ? (
+          <>
+            {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
+            <VideoTile
+              name="Screen share"
+              cameraOn
+              stream={screenStream}
+              isLocal
+              rounded={false}
+            />
+            {/* Floating self-camera thumbnail — fixed pixel size, absolutely
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
                 positioned, intentionally NOT part of any flex/percentage-height
                 chain. Earlier attempts using a flex strip for this kept
                 breaking (collapsing to full size or disappearing) because
                 percentage heights through several nested flex layers are
+<<<<<<< HEAD
                 fragile; a fixed-size floating box sidesteps that entirely.
                 Shows everyone's camera — including the presenter's own,
                 and mine, regardless of who's presenting — matching Meet,
@@ -954,6 +1010,10 @@ export default function RoomPage() {
             <div
               className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
             >
+=======
+                fragile; a fixed-size floating box sidesteps that entirely. */}
+            <div className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52">
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
               <VideoTile
                 name={`${me.name ?? me.email} (You)`}
                 isHost={myRow?.isHost ?? false}
@@ -961,7 +1021,10 @@ export default function RoomPage() {
                 cameraOn={cameraOn}
                 stream={localStream}
                 isLocal
+<<<<<<< HEAD
                 mirrored
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
                 handRaised={handRaised}
               />
             </div>
@@ -986,6 +1049,7 @@ export default function RoomPage() {
             })}
           </>
         ) : totalTiles === 1 ? (
+<<<<<<< HEAD
           // Solo view — a real 16:9 box centered in the available space,
           // matching the camera's own requested aspect ratio (see the
           // getUserMedia call above). `h-full` gives the box an actual
@@ -1008,6 +1072,20 @@ export default function RoomPage() {
               />
             </div>
           </div>
+=======
+          // Solo view — full-bleed, matching Meet's own edge-to-edge look
+          // when it's just you in the call.
+          <VideoTile
+            name={`${me.name ?? me.email} (You)`}
+            isHost={myRow?.isHost ?? false}
+            isMuted={!micOn}
+            cameraOn={cameraOn}
+            stream={localStream}
+            isLocal
+            handRaised={handRaised}
+            rounded={false}
+          />
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
         ) : layoutMode === "spotlight" ? (
           <div className="flex h-full w-full flex-col gap-2 p-2 sm:gap-3 sm:p-3">
             <div className="min-h-0 flex-1">
@@ -1033,7 +1111,10 @@ export default function RoomPage() {
                   cameraOn={cameraOn}
                   stream={localStream}
                   isLocal
+<<<<<<< HEAD
                   mirrored
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
                   handRaised={handRaised}
                 />
               )}
@@ -1048,7 +1129,10 @@ export default function RoomPage() {
                     cameraOn={cameraOn}
                     stream={localStream}
                     isLocal
+<<<<<<< HEAD
                     mirrored
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
                     handRaised={handRaised}
                   />
                 </div>
@@ -1085,7 +1169,10 @@ export default function RoomPage() {
               cameraOn={cameraOn}
               stream={localStream}
               isLocal
+<<<<<<< HEAD
               mirrored
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
               handRaised={handRaised}
             />
             {others.map((participant) => {
@@ -1105,6 +1192,7 @@ export default function RoomPage() {
           </div>
         )}
 
+<<<<<<< HEAD
       {captionsOn && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4 sm:bottom-28">
           {captionText ? (
@@ -1119,6 +1207,20 @@ export default function RoomPage() {
           )}
         </div>
       )}
+=======
+        {captionsOn && (
+          <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 w-full max-w-2xl -translate-x-1/2 px-4">
+            {captionText ? (
+              <div className="rounded-lg bg-black/75 px-4 py-2.5 backdrop-blur">
+                <p className="text-xs font-semibold text-accent">{me.name ?? me.email}</p>
+                <p className="text-sm text-white">{captionText}</p>
+              </div>
+            ) : (
+              <p className="text-center text-xs text-white/40">Listening for speech...</p>
+            )}
+          </div>
+        )}
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 
         {timerRemaining !== null && (
           <div className="absolute right-4 top-4 z-20 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-white backdrop-blur">
@@ -1158,6 +1260,7 @@ export default function RoomPage() {
         </div>
       )}
 
+<<<<<<< HEAD
       {showReadyCard && (
         <div className="absolute left-4 top-16 z-30 w-full max-w-sm rounded-2xl bg-[#202124] p-5 text-white shadow-2xl sm:top-20">
           <div className="flex items-start justify-between">
@@ -1216,6 +1319,8 @@ export default function RoomPage() {
         </div>
       )}
 
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
       {showShareWarning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-2xl bg-[#202124] p-6 text-white shadow-2xl">
@@ -1255,8 +1360,11 @@ export default function RoomPage() {
         handRaised={handRaised}
         onToggleHandRaise={handleToggleHandRaise}
         onReact={handleReact}
+<<<<<<< HEAD
         captionsOn={captionsOn}
         onToggleCaptions={toggleCaptions}
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
         onMoreClick={() => setMenuOpen((value) => !value)}
         onLeave={handleLeave}
         leaving={leaving || ending}

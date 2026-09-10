@@ -43,9 +43,12 @@ interface ControlBarProps {
   onToggleHandRaise?: () => void;
   /** Send a quick emoji reaction to everyone in the meeting. */
   onReact?: (emoji: string) => void;
+<<<<<<< HEAD
   /** Whether live captions are currently on — highlights the button. */
   captionsOn?: boolean;
   onToggleCaptions?: () => void;
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   onMoreClick?: () => void;
   onLeave: () => void;
   leaving?: boolean;
@@ -96,8 +99,11 @@ export function ControlBar({
   handRaised = false,
   onToggleHandRaise,
   onReact,
+<<<<<<< HEAD
   captionsOn = false,
   onToggleCaptions,
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   onMoreClick,
   onLeave,
   leaving = false,
@@ -165,11 +171,15 @@ export function ControlBar({
             )}
           </div>
 
+<<<<<<< HEAD
           <ControlButton
             onClick={onToggleCaptions ?? (() => toast.info("Captions aren't available right now."))}
             label={captionsOn ? "Turn off captions" : "Turn on captions"}
             active={captionsOn}
           >
+=======
+          <ControlButton onClick={() => toast.info("Captions are coming in a later update.")} label="Captions">
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
             <Captions size={20} />
           </ControlButton>
 

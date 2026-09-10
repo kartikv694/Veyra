@@ -24,12 +24,15 @@ interface VideoTileProps {
   /** Set false for full-bleed views (solo camera, presenting) to match
    *  Meet's edge-to-edge look. Defaults true for grid/thumbnail tiles. */
   rounded?: boolean;
+<<<<<<< HEAD
   /** Mirrors the video horizontally — set true for your own camera (a
    *  natural mirror-image self-view, matching every video call app), but
    *  NEVER for a screen share (mirroring shared content backwards would
    *  make it unreadable) or a remote participant's camera (only correct
    *  from their own vantage point, not ours). */
   mirrored?: boolean;
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 }
 
 function initials(name: string): string {
@@ -69,7 +72,10 @@ export function VideoTile({
   isLocal = false,
   handRaised = false,
   rounded = true,
+<<<<<<< HEAD
   mirrored = false,
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
 }: VideoTileProps) {
   const [speaking, setSpeaking] = useState(false);
 

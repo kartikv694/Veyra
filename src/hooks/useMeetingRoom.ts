@@ -186,6 +186,7 @@ export function useMeetingRoom(
       };
 
       pc.ontrack = (event) => {
+<<<<<<< HEAD
         const incomingStream = event.streams[0] ?? null;
         setPeers((prev) => {
           const existing =
@@ -211,6 +212,15 @@ export function useMeetingRoom(
           }
           return { ...prev, [socketId]: { ...existing, screenStream: incomingStream } };
         });
+=======
+        setPeers((prev) => ({
+          ...prev,
+          [socketId]: {
+            ...(prev[socketId] ?? { socketId, userId, name, micOn: true, cameraOn: true, handRaised: false }),
+            stream: event.streams[0] ?? null,
+          },
+        }));
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
       };
 
       pc.onconnectionstatechange = () => {
@@ -222,7 +232,11 @@ export function useMeetingRoom(
       pcsRef.current[socketId] = pc;
       setPeers((prev) => ({
         ...prev,
+<<<<<<< HEAD
         [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
+=======
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
       }));
       return pc;
     },
@@ -267,7 +281,11 @@ export function useMeetingRoom(
       // wait for their "webrtc:offer" and answer it below.
       setPeers((prev) => ({
         ...prev,
+<<<<<<< HEAD
         [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
+=======
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
       }));
     });
 
@@ -355,6 +373,7 @@ export function useMeetingRoom(
       },
     );
 
+<<<<<<< HEAD
     // Explicit signal for screen-share starting/stopping — the actual
     // video shows up via the normal WebRTC track/ontrack flow above, but
     // relying on track-removal events alone to know when a share has
@@ -372,6 +391,8 @@ export function useMeetingRoom(
       },
     );
 
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
     socket.on("peer:reaction", ({ emoji, name }: { emoji: string; name: string }) => {
       callbacksRef.current.onReaction?.(emoji, name);
     });
@@ -450,6 +471,7 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:chat-message", { text });
   }, []);
 
+<<<<<<< HEAD
   /**
    * Adds the screen-share track as a NEW, separate sender on every peer
    * connection — the camera's sender is untouched. This is what makes
@@ -459,6 +481,9 @@ export function useMeetingRoom(
    * which is what actually gets it to the other side.
    */
   const addScreenShareTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
+=======
+  const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
     Object.values(pcsRef.current).forEach((pc) => {
       pc.addTrack(track, stream);
     });
@@ -478,17 +503,24 @@ export function useMeetingRoom(
     });
   }, []);
 
+<<<<<<< HEAD
   const broadcastScreenShareState = useCallback((sharing: boolean) => {
     socketRef.current?.emit("peer:screen-share-state", { sharing });
   }, []);
 
+=======
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
   return {
     peers: Object.values(peers),
     connected,
     broadcastMediaState,
+<<<<<<< HEAD
     addScreenShareTrack,
     removeScreenShareTrack,
     broadcastScreenShareState,
+=======
+    replaceVideoTrack,
+>>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
     broadcastHandRaise,
     sendReaction,
     sendChatMessage,
