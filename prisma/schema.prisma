@@ -168,6 +168,7 @@ model Participants {
   /// meeting — prevents duplicate join records for the same user+meeting.
   @@unique([meetingId, userId])
 }
+<<<<<<< HEAD
 
 /// An email address the host has explicitly invited to a meeting, ahead
 /// of them actually joining. Someone joining whose account email matches
@@ -237,3 +238,5 @@ enum JoinRequestStatus {
   ADMITTED
   DENIED
 }
+=======
+>>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9

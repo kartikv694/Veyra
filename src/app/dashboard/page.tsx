@@ -85,7 +85,13 @@ export default function DashboardPage() {
       setRoomLink(data.meeting.link);
       setCopied(false);
       toast.success("Meeting created — taking you in.");
+
       router.push(`/room/${data.meeting.token}?fresh=1`);
+
+      router.push(`/room/${data.meeting.token}?fresh=1`);
+
+      router.push(`/room/${data.meeting.token}`);
+
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
