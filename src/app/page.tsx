@@ -23,7 +23,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, LogIn } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Navbar } from "@/components/Navbar";
 import { SignalMotif } from "@/components/SignalMotif";
 import { checkAuth } from "@/lib/auth-client";

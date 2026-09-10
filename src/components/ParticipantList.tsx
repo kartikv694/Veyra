@@ -1,12 +1,13 @@
 "use client";
 
-import { Crown, Mic, MicOff, UserX, X } from "lucide-react";
+import { Crown, Mic, MicOff, UserX, Video, VideoOff, X } from "lucide-react";
 
 export interface ParticipantRow {
   userId: number;
   name: string;
   isHost: boolean;
   isMuted: boolean;
+  isCameraOff: boolean;
   leftAt: string | null;
 }
 
@@ -16,7 +17,19 @@ interface ParticipantListProps {
   onClose: () => void;
   viewerIsHost: boolean;
   onMute?: (userId: number) => void;
+  onCameraOff?: (userId: number) => void;
   onRemove?: (userId: number) => void;
+  onMuteAll?: () => void;
+  onCameraOffAll?: () => void;
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 export function ParticipantList({
@@ -25,12 +38,18 @@ export function ParticipantList({
   onClose,
   viewerIsHost,
   onMute,
+  onCameraOff,
   onRemove,
+  onMuteAll,
+  onCameraOffAll,
 }: ParticipantListProps) {
   if (!open) return null;
 
   const active = participants.filter((p) => !p.leftAt);
   const departed = participants.filter((p) => p.leftAt);
+  const othersActive = active.filter((p) => !p.isHost);
+  const anyoneUnmuted = othersActive.some((p) => !p.isMuted);
+  const anyoneCameraOn = othersActive.some((p) => !p.isCameraOff);
 
   return (
     <aside className="flex h-full w-full flex-col bg-[#202124] text-white">
@@ -47,6 +66,25 @@ export function ParticipantList({
 
       <div className="px-5 pb-3 text-sm text-white/60">{active.length} in this meeting</div>
 
+      {viewerIsHost && othersActive.length > 0 && (
+        <div className="flex gap-2 px-5 pb-3">
+          <button
+            onClick={onMuteAll}
+            disabled={!anyoneUnmuted}
+            className="flex-1 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40"
+          >
+            Mute all
+          </button>
+          <button
+            onClick={onCameraOffAll}
+            disabled={!anyoneCameraOn}
+            className="flex-1 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40"
+          >
+            Turn off all cameras
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-3 pb-4">
         {active.map((p) => (
           <div
@@ -54,12 +92,7 @@ export function ParticipantList({
             className="group flex items-center gap-3 rounded-xl px-2 py-3 transition hover:bg-white/5"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-sm font-semibold">
-              {p.name
-                .split(/\s+/)
-                .map((part) => part[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase()}
+              {initials(p.name)}
             </div>
 
             <div className="min-w-0 flex-1">
@@ -72,6 +105,7 @@ export function ParticipantList({
 
             <div className="flex shrink-0 items-center gap-1">
               {p.isMuted ? <MicOff size={17} className="text-white/55" /> : <Mic size={17} className="text-white/75" />}
+              {p.isCameraOff ? <VideoOff size={17} className="text-white/55" /> : <Video size={17} className="text-white/75" />}
               {viewerIsHost && !p.isHost && (
                 <div className="hidden items-center gap-1 group-hover:flex">
                   {!p.isMuted && (
@@ -82,6 +116,16 @@ export function ParticipantList({
                       className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
                     >
                       <MicOff size={14} />
+                    </button>
+                  )}
+                  {!p.isCameraOff && (
+                    <button
+                      onClick={() => onCameraOff?.(p.userId)}
+                      aria-label={`Turn off ${p.name}'s camera`}
+                      title="Turn off camera"
+                      className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
+                    >
+                      <VideoOff size={14} />
                     </button>
                   )}
                   <button
@@ -104,12 +148,7 @@ export function ParticipantList({
             {departed.map((p) => (
               <div key={p.userId} className="flex items-center gap-3 rounded-xl px-2 py-2 text-sm text-white/40">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5">
-                  {p.name
-                    .split(/\s+/)
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)
-                    .toUpperCase()}
+                  {initials(p.name)}
                 </div>
                 <span className="truncate">{p.name}</span>
               </div>

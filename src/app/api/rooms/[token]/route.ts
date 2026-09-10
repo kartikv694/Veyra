@@ -94,6 +94,7 @@ export async function GET(
         email: p.user.email,
         isHost: p.isHost,
         isMuted: p.isMuted,
+        isCameraOff: p.isCameraOff,
         joinedAt: p.joinedAt,
         leftAt: p.leftAt,
       }),

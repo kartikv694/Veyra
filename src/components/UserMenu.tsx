@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { User as UserIcon, LogOut } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { clearSession, type SessionUser } from "@/lib/auth-client";
 
 function initials(user: SessionUser): string {

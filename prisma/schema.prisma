@@ -54,6 +54,9 @@ model Users {
   /// including past meetings — see `Participant`.
   participations Participants[]
 
+  /// Every "asking to join" request this user has made, across meetings.
+  joinRequests JoinRequest[]
+
   /// Account creation timestamp. Set once, never updated.
   createdAt DateTime @default(now())
 
@@ -84,6 +87,12 @@ model Meeting {
 
   /// Everyone who has joined this meeting, past or present.
   participants Participants[]
+
+  /// Email addresses the host has invited — see `Invite`.
+  invites Invite[]
+
+  /// "Asking to join" requests from non-invited joiners — see `JoinRequest`.
+  joinRequests JoinRequest[]
 
   /// When the meeting room was created (i.e. when the host started it).
   createdAt DateTime @default(now())
@@ -142,6 +151,12 @@ model Participants {
   /// forced by the host ("Host can mute participants" per the SRS).
   isMuted Boolean @default(false)
 
+  /// Mirrors `isMuted` but for the camera — forced off by the host the
+  /// same way, via a symmetric route/event. Like `isMuted`, this is
+  /// one-directional: the host can force it off, only the participant
+  /// themselves can turn it back on.
+  isCameraOff Boolean @default(false)
+
   /// When this user joined the meeting.
   joinedAt DateTime @default(now())
 
@@ -154,3 +169,71 @@ model Participants {
   @@unique([meetingId, userId])
 }
 
+/// An email address the host has explicitly invited to a meeting, ahead
+/// of them actually joining. Someone joining whose account email matches
+/// an Invite row for that meeting is let straight in (see POST
+/// /api/rooms/[token]/join) — everyone else instead creates a JoinRequest
+/// and waits for the host to admit them. The invited person doesn't need
+/// an account yet at invite time; the match happens by email at join time.
+model Invite {
+  /// Surrogate primary key.
+  id Int @id @default(autoincrement())
+
+  /// The meeting this invite grants entry to.
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+
+  /// Foreign key for `meeting`.
+  meetingId Int
+
+  /// The invited email address — compared case-insensitively against the
+  /// joining user's account email at join time.
+  email String
+
+  /// When the host sent this invite.
+  invitedAt DateTime @default(now())
+
+  /// One invite per email per meeting — inviting the same address twice
+  /// is a no-op, not a duplicate row.
+  @@unique([meetingId, email])
+}
+
+/// A pending "asking to join" request from someone who wasn't on the
+/// invite list and isn't already a participant — the waiting-room
+/// mechanism (SRS: host admits participants before they can join).
+/// Resolved by the host admitting or denying it; either way the row
+/// stays as a record of the decision rather than being deleted.
+model JoinRequest {
+  /// Surrogate primary key.
+  id Int @id @default(autoincrement())
+
+  /// The meeting this request is asking to join.
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+
+  /// Foreign key for `meeting`.
+  meetingId Int
+
+  /// The user asking to join.
+  user Users @relation(fields: [userId], references: [id])
+
+  /// Foreign key for `user`.
+  userId Int
+
+  /// PENDING while waiting on the host; ADMITTED or DENIED once decided.
+  status JoinRequestStatus @default(PENDING)
+
+  /// When this request was created.
+  requestedAt DateTime @default(now())
+
+  /// When the host admitted or denied this request. `null` while pending.
+  resolvedAt DateTime?
+
+  /// One outstanding request per user per meeting — re-asking replaces
+  /// rather than duplicates (see the join route, which upserts this).
+  @@unique([meetingId, userId])
+}
+
+enum JoinRequestStatus {
+  PENDING
+  ADMITTED
+  DENIED
+}

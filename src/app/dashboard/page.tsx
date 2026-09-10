@@ -22,8 +22,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, LogIn, Copy, Check, Users } from "lucide-react";
-import { toast } from "sonner";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { toast } from "@/lib/toast";
 import { BrandLink } from "@/components/BrandLink";
 import { UserMenu } from "@/components/UserMenu";
 import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
@@ -85,8 +84,8 @@ export default function DashboardPage() {
       }
       setRoomLink(data.meeting.link);
       setCopied(false);
-      toast.success("Meeting created — link ready to share.");
-      loadMeetings();
+      toast.success("Meeting created — taking you in.");
+      router.push(`/room/${data.meeting.token}?fresh=1`);
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -188,7 +187,6 @@ export default function DashboardPage() {
         </nav>
 
         <div className="flex items-center gap-4">
-          <ThemeToggle />
           <UserMenu user={user} />
         </div>
       </header>
