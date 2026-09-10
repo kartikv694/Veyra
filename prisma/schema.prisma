@@ -153,4 +153,3 @@ model Participants {
   /// meeting — prevents duplicate join records for the same user+meeting.
   @@unique([meetingId, userId])
 }
-

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Captions,
+  Check,
+  Copy,
   Grid3X3,
   Info,
   KeyRound,
@@ -11,12 +13,17 @@ import {
   Lock,
   LockOpen,
   MessageSquare,
+  Mic,
+  MicOff,
   Send,
-  Smile,
   Timer,
+  UserPlus,
+  Video,
+  VideoOff,
   X,
 } from "lucide-react";
-import { toast } from "sonner";
+import { BrandLink } from "@/components/BrandLink";
+import { toast, confirmToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
 import { ParticipantList, type ParticipantRow } from "@/components/ParticipantList";
@@ -25,30 +32,24 @@ import { useMeetingRoom } from "@/hooks/useMeetingRoom";
 
 const ROSTER_POLL_MS = 8000;
 
-type Panel = "people" | "chat" | "tools" | null;
-
-function confirmToast(message: string, confirmLabel: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value: boolean, id: string | number) => {
-      if (settled) return;
-      settled = true;
-      toast.dismiss(id);
-      resolve(value);
-    };
-    const id = toast(message, {
-      duration: Infinity,
-      action: { label: confirmLabel, onClick: () => finish(true, id) },
-      cancel: { label: "Cancel", onClick: () => finish(false, id) },
-      onDismiss: () => {
-        if (!settled) {
-          settled = true;
-          resolve(false);
-        }
-      },
-    });
-  });
+/**
+ * The Web Speech API's SpeechRecognition isn't part of TypeScript's
+ * default DOM lib (it's non-standard, Chrome/Edge-only), so a minimal
+ * shape is declared here rather than reaching for `any` everywhere
+ * captions logic touches it.
+ */
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: { resultIndex: number; results: { [i: number]: { [j: number]: { transcript: string } } } & { length: number } }) => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
 }
+
+type Panel = "people" | "chat" | "tools" | null;
 
 function formatTime(date: Date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -72,6 +73,16 @@ function MeetingPanel({
   onRemove,
   message,
   setMessage,
+  captionsOn,
+  onToggleCaptions,
+  layoutMode,
+  onCycleLayout,
+  timerRemaining,
+  onStartTimer,
+  onStopTimer,
+  chatMessages,
+  onSendChat,
+  myUserId,
 }: {
   panel: Panel;
   participants: ParticipantRow[];
@@ -81,6 +92,16 @@ function MeetingPanel({
   onRemove: (userId: number) => void;
   message: string;
   setMessage: (value: string) => void;
+  captionsOn: boolean;
+  onToggleCaptions: () => void;
+  layoutMode: "auto" | "spotlight";
+  onCycleLayout: () => void;
+  timerRemaining: number | null;
+  onStartTimer: () => void;
+  onStopTimer: () => void;
+  chatMessages: { id: string; text: string; fromName: string; fromUserId: number; at: number }[];
+  onSendChat: (text: string) => void;
+  myUserId: number | null;
 }) {
   if (!panel) return null;
 
@@ -105,23 +126,46 @@ function MeetingPanel({
               <X size={20} />
             </button>
           </div>
-          <div className="flex flex-1 flex-col justify-between p-4">
-            <div className="rounded-xl bg-[#2b2c30] p-4 text-sm text-white/75">
-              <div className="mb-2 flex items-center gap-2 font-medium text-white">
-                <MessageSquare size={16} />
-                Meeting chat
+          <div className="flex flex-1 flex-col justify-end gap-3 overflow-y-auto p-4">
+            {chatMessages.length === 0 ? (
+              <div className="rounded-xl bg-[#2b2c30] p-4 text-sm text-white/75">
+                <div className="mb-2 flex items-center gap-2 font-medium text-white">
+                  <MessageSquare size={16} />
+                  Meeting chat
+                </div>
+                <p className="leading-6 text-white/55">
+                  Messages here are live only — sent to everyone currently in the meeting, not saved anywhere.
+                </p>
               </div>
-              <p className="leading-6 text-white/55">
-                Send a message to people in this meeting. Chat delivery can be connected to Socket.IO when the messaging feature is enabled.
-              </p>
-            </div>
+            ) : (
+              chatMessages.map((msg) => {
+                const isMine = msg.fromUserId === myUserId;
+                return (
+                  <div key={msg.id} className={`flex flex-col ${isMine ? "items-end" : "items-start"}`}>
+                    <span className="mb-1 px-1 text-xs text-white/40">
+                      {isMine ? "You" : msg.fromName} · {formatTime(new Date(msg.at))}
+                    </span>
+                    <span
+                      className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
+                        isMine ? "bg-accent text-white" : "bg-[#2b2c30] text-white/90"
+                      }`}
+                    >
+                      {msg.text}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
 
+          <div className="border-t border-white/10 p-4">
             <div className="rounded-full border border-white/15 bg-[#1a1b1e] px-4 py-2">
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  if (!message.trim()) return;
-                  toast.success("Message UI is ready; realtime chat is not enabled yet.");
+                  const trimmed = message.trim();
+                  if (!trimmed) return;
+                  onSendChat(trimmed);
                   setMessage("");
                 }}
                 className="flex items-center gap-2"
@@ -132,10 +176,7 @@ function MeetingPanel({
                   placeholder="Send a message"
                   className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35"
                 />
-                <button type="button" aria-label="Add reaction" className="rounded-full p-1.5 text-white/50 hover:text-white">
-                  <Smile size={18} />
-                </button>
-                <button type="submit" aria-label="Send message" className="rounded-full p-1.5 text-white/50 hover:text-white">
+                <button type="submit" aria-label="Send message" disabled={!message.trim()} className="rounded-full p-1.5 text-white/50 hover:text-white disabled:opacity-40">
                   <Send size={18} />
                 </button>
               </form>
@@ -158,20 +199,47 @@ function MeetingPanel({
               <span className="px-3 pb-3 text-white/45">Add-ons</span>
             </div>
             <div className="space-y-3">
-              <button className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]">
+              <button
+                onClick={() => toast.info("Speech translation needs a translation service that isn't configured yet.")}
+                className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
+              >
                 <Languages className="text-violet-300" size={21} />
                 <span className="flex-1"><strong className="block text-sm font-medium">Speech translation</strong><small className="text-white/45">Translate spoken audio</small></span>
                 <span className="text-white/35">›</span>
               </button>
-              <button className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]">
+              <button
+                onClick={timerRemaining !== null ? onStopTimer : onStartTimer}
+                className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
+              >
                 <Timer className="text-purple-300" size={21} />
-                <span className="flex-1"><strong className="block text-sm font-medium">Timer</strong><small className="text-white/45">Show a countdown timer</small></span>
+                <span className="flex-1">
+                  <strong className="block text-sm font-medium">Timer</strong>
+                  <small className="text-white/45">
+                    {timerRemaining !== null
+                      ? `${Math.floor(timerRemaining / 60)}:${String(timerRemaining % 60).padStart(2, "0")} remaining — tap to stop`
+                      : "Show a countdown timer"}
+                  </small>
+                </span>
                 <span className="text-white/35">›</span>
               </button>
               <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-white/10 p-4 text-white/55"><Captions size={19} className="mb-3" /><span className="text-sm">Captions</span></div>
-                <div className="rounded-2xl border border-white/10 p-4 text-white/55"><Grid3X3 size={19} className="mb-3" /><span className="text-sm">Layout</span></div>
+                <button
+                  onClick={onToggleCaptions}
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
+                  }`}
+                >
+                  <Captions size={19} className="mb-3" />
+                  <span className="text-sm">{captionsOn ? "Captions on" : "Captions"}</span>
+                </button>
+                <button
+                  onClick={onCycleLayout}
+                  className="rounded-2xl border border-white/10 p-4 text-left text-white/55 transition hover:bg-white/5"
+                >
+                  <Grid3X3 size={19} className="mb-3" />
+                  <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -187,6 +255,8 @@ export default function RoomPage() {
   const token = params.token;
 
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [joined, setJoined] = useState(false);
+  const [joining, setJoiningRoom] = useState(false);
   const [me, setMe] = useState<SessionUser | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -200,39 +270,83 @@ export default function RoomPage() {
   const [passcodeSet, setPasscodeSet] = useState(false);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [showShareWarning, setShowShareWarning] = useState(false);
+  // Lazy initializer runs synchronously during the very first render, on
+  // the client — reading window.location.search here (rather than in a
+  // useEffect that runs after mount) removes any timing gap where a
+  // stale/not-yet-updated URL could be read relative to Next's
+  // client-side navigation finishing.
+  const [showReadyCard, setShowReadyCard] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fresh") === "1",
+  );
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [handRaised, setHandRaised] = useState(false);
+  const [captionsOn, setCaptionsOn] = useState(false);
+  const [captionText, setCaptionText] = useState("");
+  const [layoutMode, setLayoutMode] = useState<"auto" | "spotlight">("auto");
+  const [timerRemaining, setTimerRemaining] = useState<number | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [reactions, setReactions] = useState<{ id: string; emoji: string; fromName: string }[]>([]);
+  const [chatMessages, setChatMessages] = useState<
+    { id: string; text: string; fromName: string; fromUserId: number; at: number }[]
+  >([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
   const streamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
 
-  const exitToDashboard = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
-    router.push("/dashboard");
-  }, [router]);
+  const exitMeeting = useCallback(
+    (reason: "left" | "removed" | "ended") => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      router.push(`/meeting-ended/${token}?reason=${reason}`);
+    },
+    [router, token],
+  );
 
-  const { peers, connected, broadcastMediaState, replaceVideoTrack } = useMeetingRoom(token, localStream, me?.id ?? null, {
-    onForceMuted: () => {
-      streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
-      setMicOn(false);
-      toast.info("The host muted you.");
+  const {
+    peers,
+    connected,
+    broadcastMediaState,
+    addScreenShareTrack,
+    removeScreenShareTrack,
+    broadcastScreenShareState,
+    broadcastHandRaise,
+    sendReaction,
+    sendChatMessage,
+  } = useMeetingRoom(
+    token,
+    localStream,
+    me?.id ?? null,
+    {
+      onForceMuted: () => {
+        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
+        setMicOn(false);
+        toast.info("The host muted you.");
+      },
+      onRemoved: () => {
+        exitMeeting("removed");
+      },
+      onMeetingEnded: () => {
+        exitMeeting("ended");
+      },
+      onReaction: (emoji, fromName) => {
+        setReactions((prev) => [...prev, { id: Math.random().toString(36).slice(2), emoji, fromName }]);
+      },
+      onChatMessage: (msg) => {
+        setChatMessages((prev) => [...prev, { id: `${msg.at}-${msg.fromUserId}-${Math.random()}`, ...msg }]);
+      },
     },
-    onRemoved: () => {
-      toast.error("You were removed from the meeting by the host.");
-      exitToDashboard();
-    },
-    onMeetingEnded: () => {
-      toast.info("The host ended the meeting.");
-      exitToDashboard();
-    },
-  });
+    joined,
+  );
 
   const loadRoster = useCallback(async () => {
     const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
     if (!res.ok) {
       if (res.status === 403 || res.status === 404) {
         toast.error("You're no longer in this meeting.");
-        router.push("/dashboard");
+        exitMeeting("left");
       }
       return;
     }
@@ -241,14 +355,53 @@ export default function RoomPage() {
     setLocked(Boolean(data.meeting.locked));
     setPasscodeSet(Boolean(data.meeting.passcodeSet));
     if (data.meeting.endAt) {
-      toast.info("This meeting has ended.");
-      router.push("/dashboard");
+      exitMeeting("ended");
     }
-  }, [token, router]);
+  }, [token, exitMeeting]);
+
+  /**
+   * What the lobby's "Join now" button actually does: calls the real join
+   * endpoint (auto-rejoin logic — see that route's docs for why this is
+   * safe to call even for a returning participant), and only flips
+   * `joined` to true on success. `useMeetingRoom` doesn't connect its
+   * socket until `joined` is true (see the `enabled` arg on that hook
+   * call below), so nothing about the live call — WebRTC, roster
+   * polling, the other participants seeing you — starts until this
+   * succeeds. Before this point you're only ever previewing your own
+   * camera locally; nobody else knows you're here yet.
+   */
+  const handleJoinFromLobby = async () => {
+    setJoiningRoom(true);
+    try {
+      const joinRes = await fetch("/api/rooms/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ token }),
+      });
+      const data = await joinRes.json().catch(() => ({}));
+      if (!joinRes.ok) {
+        toast.error(data.error ?? "Couldn't join this meeting.");
+        return;
+      }
+      await loadRoster();
+      setJoined(true);
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setJoiningRoom(false);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("fresh") === "1") {
+      // Strip the param so a refresh doesn't re-show the card.
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -261,21 +414,67 @@ export default function RoomPage() {
         router.push("/login");
         return;
       }
+
       setMe(user);
       setCheckingAuth(false);
-      await loadRoster();
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { aspectRatio: { ideal: 16 / 9 }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: true,
+        });
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
         streamRef.current = stream;
         setLocalStream(stream);
-      } catch {
+      } catch (err) {
         setCameraOn(false);
         setMicOn(false);
-        toast.warning("Camera or microphone access was unavailable. You can still join the meeting.");
+        const name = err instanceof Error ? err.name : "";
+        if (name === "NotReadableError" || name === "TrackStartError") {
+          // This is what actually happens when testing two participants
+          // on the same machine with one physical webcam: the OS/browser
+          // only lets one tab (or app) use a given camera at a time. This
+          // isn't a bug to fix in code — it's a real hardware limit. The
+          // second tab genuinely cannot get the camera while the first
+          // tab holds it open, on any video-calling app, not just this
+          // one. Testing multiple real cameras needs separate physical
+          // devices (a phone + a computer, or two computers).
+          toast.warning(
+            "Your camera is already in use by another tab or app — only one can use it at a time. You can still join with camera off, or close the other tab using it.",
+          );
+        } else if (name === "NotFoundError") {
+          toast.warning("No camera or microphone was found on this device. You can still join.");
+        } else if (name === "NotAllowedError") {
+          toast.warning("Camera/microphone permission was denied. You can still join with them off.");
+        } else {
+          toast.warning("Camera or microphone access was unavailable. You can still join the meeting.");
+        }
+      }
+
+      // Skip the lobby for the host — matches Meet: the person who
+      // created (or owns) the meeting goes straight in, since they were
+      // just setting up their own camera a moment ago on the dashboard.
+      // The lobby is for people arriving via a link/code, not the host
+      // arriving at their own room. This only works because creating a
+      // meeting already adds the host as an active participant in the
+      // same transaction (see POST /api/rooms), so this fetch succeeds
+      // even on their very first visit — a genuine first-time visitor who
+      // isn't a participant yet gets 403 here and falls through to the
+      // lobby, which is correct for them.
+      try {
+        const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.meeting.hostId === user.id) {
+            void handleJoinFromLobby();
+          }
+        }
+      } catch {
+        // Network hiccup on the precheck — not fatal, just falls through
+        // to the normal lobby, where "Join now" retries everything anyway.
       }
     })();
     return () => {
@@ -286,10 +485,10 @@ export default function RoomPage() {
   }, []);
 
   useEffect(() => {
-    if (checkingAuth) return;
+    if (!joined) return;
     const id = setInterval(loadRoster, ROSTER_POLL_MS);
     return () => clearInterval(id);
-  }, [checkingAuth, loadRoster]);
+  }, [joined, loadRoster]);
 
   const toggleMic = () => {
     const stream = streamRef.current;
@@ -309,6 +508,164 @@ export default function RoomPage() {
     broadcastMediaState(micOn, next);
   };
 
+  const handleToggleHandRaise = () => {
+    const next = !handRaised;
+    setHandRaised(next);
+    broadcastHandRaise(next);
+    toast.info(next ? "You raised your hand." : "You lowered your hand.");
+  };
+
+  /**
+   * Live captions of your OWN speech via the browser's built-in
+   * SpeechRecognition (Web Speech API) — Chrome/Edge only, no external
+   * service required, which is also its limit: it only captions the
+   * local mic, not other participants' audio (captioning remote WebRTC
+   * audio streams would need a server-side transcription service this
+   * app doesn't have configured).
+   */
+  const toggleCaptions = () => {
+    if (captionsOn) {
+      const recognition = recognitionRef.current;
+      recognitionRef.current = null; // clear first so onend below doesn't auto-restart
+      recognition?.stop();
+      setCaptionsOn(false);
+      setCaptionText("");
+      return;
+    }
+
+    const SpeechRecognitionCtor =
+      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionInstance }).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionInstance }).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionCtor) {
+      toast.error("Captions need Chrome or Edge — not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    let consecutiveFailures = 0;
+
+    recognition.onresult = (event) => {
+      consecutiveFailures = 0; // a real result came back — recognition is working
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setCaptionText(transcript);
+    };
+    recognition.onerror = (event) => {
+      // "no-speech"/"aborted" are normal transient hiccups — onend below
+      // restarts recognition automatically while captions are still on.
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        toast.error("Captions need microphone access — check your browser's site permissions.");
+        recognitionRef.current = null;
+        setCaptionsOn(false);
+        return;
+      }
+      if (event.error === "network") {
+        // Chrome's built-in recognition is cloud-based — it needs a live
+        // connection to Google's speech service even though it's
+        // captioning local audio. This is the most common real-world
+        // failure and was previously swallowed silently (captions stayed
+        // "on" forever with nothing appearing) — now it's surfaced.
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          toast.error("Captions can't reach the speech service — check your internet connection.");
+          recognitionRef.current = null;
+          setCaptionsOn(false);
+        }
+      }
+    };
+    recognition.onend = () => {
+      if (recognitionRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // Already running, or the browser refused to restart it — stop
+          // trying rather than loop silently forever.
+          recognitionRef.current = null;
+          setCaptionsOn(false);
+        }
+      }
+    };
+    try {
+      recognition.start();
+    } catch {
+      toast.error("Couldn't start captions — try toggling them off and on again.");
+      return;
+    }
+    recognitionRef.current = recognition;
+    setCaptionsOn(true);
+    toast.success("Captions on — captioning your own speech.");
+  };
+
+  useEffect(() => {
+    return () => {
+      const recognition = recognitionRef.current;
+      recognitionRef.current = null;
+      recognition?.stop();
+    };
+  }, []);
+
+  const cycleLayout = () => {
+    const next = layoutMode === "auto" ? "spotlight" : "auto";
+    setLayoutMode(next);
+    toast.info(next === "spotlight" ? "Layout: Spotlight" : "Layout: Auto");
+  };
+
+  const startTimer = () => {
+    const input = window.prompt("Countdown length in minutes:", "5");
+    if (input === null) return;
+    const minutes = Number(input);
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      toast.error("Enter a whole number of minutes greater than 0.");
+      return;
+    }
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    setTimerRemaining(Math.round(minutes * 60));
+    timerIntervalRef.current = setInterval(() => {
+      setTimerRemaining((prev) => {
+        if (prev === null || prev <= 1) {
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          toast.info("Timer's up.");
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    toast.success(`Timer started for ${minutes} minute${minutes === 1 ? "" : "s"}.`);
+  };
+
+  const stopTimer = () => {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    timerIntervalRef.current = null;
+    setTimerRemaining(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
+
+  const handleReact = (emoji: string) => {
+    // The server echoes reactions back to everyone including the sender
+    // (see server.ts), so this alone is enough — no need to also add it
+    // locally here, which would show your own reaction twice.
+    sendReaction(emoji);
+  };
+
+  // Each reaction bubble clears itself after a few seconds.
+  useEffect(() => {
+    if (reactions.length === 0) return;
+    const timer = setTimeout(() => setReactions((prev) => prev.slice(1)), 3000);
+    return () => clearTimeout(timer);
+  }, [reactions]);
+
   const peerCount = peers.length;
   useEffect(() => {
     if (connected) broadcastMediaState(micOn, cameraOn);
@@ -316,32 +673,40 @@ export default function RoomPage() {
   }, [peerCount, connected]);
 
   const stopScreenShare = useCallback(() => {
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    const track = screenStreamRef.current?.getVideoTracks()[0];
+    if (track) removeScreenShareTrack(track);
+    screenStreamRef.current?.getTracks().forEach((t) => t.stop());
     screenStreamRef.current = null;
-    setScreenStream(null);
     setSharingScreen(false);
-    const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
-    replaceVideoTrack(cameraTrack);
-    broadcastMediaState(micOn, cameraOn);
-  }, [replaceVideoTrack, broadcastMediaState, micOn, cameraOn]);
+    setScreenStream(null);
+    broadcastScreenShareState(false);
+  }, [removeScreenShareTrack, broadcastScreenShareState]);
 
-  const handleScreenShareClick = async () => {
-    if (sharingScreen) {
-      stopScreenShare();
-      toast.info("Stopped sharing your screen.");
-      return;
-    }
+  const startScreenShare = async () => {
+    setShowShareWarning(false);
     try {
-      const display = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      // selfBrowserSurface: "exclude" removes THIS tab from the browser's
+      // own share picker (supported in current Chrome/Edge) — this is
+      // what actually prevents the recursive mirror, not just warns about
+      // it: if the tab running this meeting isn't offered as an option,
+      // it can't be selected. Ignored harmlessly on browsers that don't
+      // support the option, which is why the warning dialog before this
+      // call still exists as a fallback for those.
+      const display = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        selfBrowserSurface: "exclude",
+      } as DisplayMediaStreamOptions);
       const screenTrack = display.getVideoTracks()[0];
       screenStreamRef.current = display;
-      setScreenStream(display);
       setSharingScreen(true);
-      replaceVideoTrack(screenTrack);
-      // Treat sharing as "video on" for everyone else regardless of the
-      // actual camera toggle, so their tile renders the shared frames
-      // instead of falling back to the avatar.
-      broadcastMediaState(micOn, true);
+      setScreenStream(display);
+      // A genuinely separate sender, not a replacement for the camera
+      // track — this is what makes the screen show up as its own tile
+      // for everyone else (matching Meet), with your camera still
+      // showing normally alongside it, instead of your screen taking
+      // over your camera's slot.
+      addScreenShareTrack(screenTrack, display);
+      broadcastScreenShareState(true);
       // The browser's own native "Stop sharing" control also needs to revert us.
       screenTrack.onended = stopScreenShare;
       toast.success("Sharing your screen.");
@@ -350,7 +715,22 @@ export default function RoomPage() {
     }
   };
 
+  const handleScreenShareClick = () => {
+    if (sharingScreen) {
+      stopScreenShare();
+      toast.info("Stopped sharing your screen.");
+      return;
+    }
+    // Don't jump straight to the OS picker — warn first. Sharing this
+    // browser's own tab/window creates a recursive "infinite mirror"
+    // (the shared video showing itself, showing itself...), which is
+    // confusing and expensive to render. The picker itself can't be
+    // restricted from here, so this is a heads-up, not a hard block.
+    setShowShareWarning(true);
+  };
+
   const handleLeave = async () => {
+    if (leaving) return; // guards against a rapid double-click firing before the disabled state re-renders
     setLeaving(true);
     try {
       const res = await fetch("/api/rooms/leave", {
@@ -364,7 +744,7 @@ export default function RoomPage() {
         return;
       }
       toast.success("You left the meeting.");
-      exitToDashboard();
+      exitMeeting("left");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -445,7 +825,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't end the meeting.");
       toast.success("Meeting ended for everyone.");
-      exitToDashboard();
+      exitMeeting("ended");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -459,9 +839,73 @@ export default function RoomPage() {
   const others = participants.filter((participant) => participant.userId !== me?.id && !participant.leftAt);
   const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);
   const totalTiles = others.length + 1;
+  const spotlightFeatured = others.find((p) => p.isHost) ?? others[0] ?? null;
+  // Whoever's screen should be the big tile right now — either mine, or
+  // the first other participant currently sharing theirs. Meet only ever
+  // shows one screen share at a time in practice, so "first" is fine.
+  const remotePresenter = others.find(
+    (participant) => liveByUserId.get(participant.userId)?.screenStream,
+  );
+  const presentingStream = sharingScreen
+    ? screenStream
+    : remotePresenter
+      ? (liveByUserId.get(remotePresenter.userId)?.screenStream ?? null)
+      : null;
+  const presentingName = sharingScreen ? "Your screen" : remotePresenter ? `${remotePresenter.name}'s screen` : "";
   const activeParticipantCount = others.length + 1;
 
   if (checkingAuth || !me) return <div className="min-h-screen bg-[#0f1012]" />;
+
+  if (!joined) {
+    return (
+      <div className="relative flex h-dvh flex-col overflow-hidden bg-[#0f1012] text-white">
+        <header className="flex items-center justify-between px-6 py-5 sm:px-10">
+          <BrandLink size={22} />
+        </header>
+
+        <main className="flex flex-1 flex-col items-center justify-center gap-8 px-4 pb-10 sm:flex-row sm:gap-12">
+          <div className="relative h-[280px] w-full max-w-xl overflow-hidden rounded-2xl bg-[#171A21] sm:h-[360px]">
+            <VideoTile
+              name={me.name ?? me.email}
+              isMuted={!micOn}
+              cameraOn={cameraOn}
+              stream={localStream}
+              isLocal
+              mirrored
+            />
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2">
+              <button
+                onClick={toggleMic}
+                aria-label={micOn ? "Turn off microphone" : "Turn on microphone"}
+                className={`flex h-11 w-11 items-center justify-center rounded-full ${micOn ? "bg-white/10 hover:bg-white/15" : "bg-[#ea4335] hover:bg-[#d93025]"}`}
+              >
+                {micOn ? <Mic size={18} /> : <MicOff size={18} />}
+              </button>
+              <button
+                onClick={toggleCamera}
+                aria-label={cameraOn ? "Turn off camera" : "Turn on camera"}
+                className={`flex h-11 w-11 items-center justify-center rounded-full ${cameraOn ? "bg-white/10 hover:bg-white/15" : "bg-[#ea4335] hover:bg-[#d93025]"}`}
+              >
+                {cameraOn ? <Video size={18} /> : <VideoOff size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex w-full max-w-sm flex-col items-center text-center sm:items-start sm:text-left">
+            <h1 className="font-display text-2xl font-semibold">Ready to join?</h1>
+            <p className="mt-1 text-sm text-white/50">{token}</p>
+            <button
+              onClick={handleJoinFromLobby}
+              disabled={joining}
+              className="mt-6 rounded-full bg-accent px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {joining ? "Joining..." : "Join now"}
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-dvh overflow-hidden bg-[#0f1012] text-white">
@@ -474,6 +918,17 @@ export default function RoomPage() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {sharingScreen && (
+            <div className="flex items-center gap-2 rounded-full bg-white/[0.06] pl-3 pr-1 py-1">
+              <span className="text-xs font-medium text-white/85">You&apos;re presenting</span>
+              <button
+                onClick={handleScreenShareClick}
+                className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
+              >
+                Stop presenting
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2 rounded-full bg-white/[0.06] pl-1.5 pr-2.5 py-1">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-xs font-semibold">{initials(me.name ?? me.email)}</div>
             <span className="text-xs font-medium text-white/75">{activeParticipantCount}</span>
@@ -481,34 +936,195 @@ export default function RoomPage() {
         </div>
       </header>
 
-      <main className="flex h-full items-center justify-center px-3 pb-20 pt-14 sm:px-5 sm:pb-24 sm:pt-16">
-        <div className={`${totalTiles === 1 ? "flex w-[min(1200px,calc(100vw-24px))] max-w-[1200px] aspect-video items-center justify-center" : "grid h-[calc(100dvh-128px)] w-full auto-rows-fr gap-2 sm:gap-3"} ${
-          totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
-        }`}>
-          <div className={totalTiles === 1 ? "h-full w-full" : "contents"}>
+      <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
+        {presentingStream ? (
+          <>
+            {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
+            <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} />
+            {/* Floating camera thumbnails — fixed pixel size, absolutely
+                positioned, intentionally NOT part of any flex/percentage-height
+                chain. Earlier attempts using a flex strip for this kept
+                breaking (collapsing to full size or disappearing) because
+                percentage heights through several nested flex layers are
+                fragile; a fixed-size floating box sidesteps that entirely.
+                Shows everyone's camera — including the presenter's own,
+                and mine, regardless of who's presenting — matching Meet,
+                which keeps every camera visible as a small tile even
+                while someone's screen is the main view. */}
+            <div
+              className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
+            >
+              <VideoTile
+                name={`${me.name ?? me.email} (You)`}
+                isHost={myRow?.isHost ?? false}
+                isMuted={!micOn}
+                cameraOn={cameraOn}
+                stream={localStream}
+                isLocal
+                mirrored
+                handRaised={handRaised}
+              />
+            </div>
+            {others.slice(0, 3).map((participant, i) => {
+              const live = liveByUserId.get(participant.userId);
+              return (
+                <div
+                  key={participant.userId}
+                  className="absolute z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
+                  style={{ bottom: 16, right: 16 + (i + 1) * 184 }}
+                >
+                  <VideoTile
+                    name={participant.name}
+                    isHost={participant.isHost}
+                    isMuted={live ? !live.micOn : participant.isMuted}
+                    cameraOn={live ? live.cameraOn : false}
+                    stream={live?.stream ?? null}
+                    handRaised={live?.handRaised ?? false}
+                  />
+                </div>
+              );
+            })}
+          </>
+        ) : totalTiles === 1 ? (
+          // Solo view — a real 16:9 box centered in the available space,
+          // matching the camera's own requested aspect ratio (see the
+          // getUserMedia call above). `h-full` gives the box an actual
+          // sizing basis before aspect-ratio kicks in — without it (just
+          // max-h-full/max-w-full, no base dimension), the box has nothing
+          // to size itself from and collapses to fit its content instead
+          // of filling the space, which is what produced a tiny
+          // shrunken avatar when the camera was off.
+          <div className="flex h-full w-full items-center justify-center">
+            <div className="aspect-video h-full max-w-full">
+              <VideoTile
+                name={`${me.name ?? me.email} (You)`}
+                isHost={myRow?.isHost ?? false}
+                isMuted={!micOn}
+                cameraOn={cameraOn}
+                stream={localStream}
+                isLocal
+                mirrored
+                handRaised={handRaised}
+              />
+            </div>
+          </div>
+        ) : layoutMode === "spotlight" ? (
+          <div className="flex h-full w-full flex-col gap-2 p-2 sm:gap-3 sm:p-3">
+            <div className="min-h-0 flex-1">
+              {spotlightFeatured ? (
+                (() => {
+                  const live = liveByUserId.get(spotlightFeatured.userId);
+                  return (
+                    <VideoTile
+                      name={spotlightFeatured.name}
+                      isHost={spotlightFeatured.isHost}
+                      isMuted={live ? !live.micOn : spotlightFeatured.isMuted}
+                      cameraOn={live ? live.cameraOn : false}
+                      stream={live?.stream ?? null}
+                      handRaised={live?.handRaised ?? false}
+                    />
+                  );
+                })()
+              ) : (
+                <VideoTile
+                  name={`${me.name ?? me.email} (You)`}
+                  isHost={myRow?.isHost ?? false}
+                  isMuted={!micOn}
+                  cameraOn={cameraOn}
+                  stream={localStream}
+                  isLocal
+                  mirrored
+                  handRaised={handRaised}
+                />
+              )}
+            </div>
+            <div className="flex h-20 shrink-0 gap-2 overflow-x-auto sm:h-24 sm:gap-3">
+              {spotlightFeatured && (
+                <div className="aspect-video h-full shrink-0">
+                  <VideoTile
+                    name={`${me.name ?? me.email} (You)`}
+                    isHost={myRow?.isHost ?? false}
+                    isMuted={!micOn}
+                    cameraOn={cameraOn}
+                    stream={localStream}
+                    isLocal
+                    mirrored
+                    handRaised={handRaised}
+                  />
+                </div>
+              )}
+              {others
+                .filter((participant) => participant.userId !== spotlightFeatured?.userId)
+                .map((participant) => {
+                  const live = liveByUserId.get(participant.userId);
+                  return (
+                    <div key={participant.userId} className="aspect-video h-full shrink-0">
+                      <VideoTile
+                        name={participant.name}
+                        isHost={participant.isHost}
+                        isMuted={live ? !live.micOn : participant.isMuted}
+                        cameraOn={live ? live.cameraOn : false}
+                        stream={live?.stream ?? null}
+                        handRaised={live?.handRaised ?? false}
+                      />
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        ) : (
+          <div
+            className={`grid h-full w-full auto-rows-fr gap-2 p-2 sm:gap-3 sm:p-3 ${
+              totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
+            }`}
+          >
             <VideoTile
               name={`${me.name ?? me.email} (You)`}
               isHost={myRow?.isHost ?? false}
               isMuted={!micOn}
-              cameraOn={sharingScreen ? true : cameraOn}
-              stream={sharingScreen ? screenStream : localStream}
+              cameraOn={cameraOn}
+              stream={localStream}
               isLocal
+              mirrored
+              handRaised={handRaised}
             />
+            {others.map((participant) => {
+              const live = liveByUserId.get(participant.userId);
+              return (
+                <VideoTile
+                  key={participant.userId}
+                  name={participant.name}
+                  isHost={participant.isHost}
+                  isMuted={live ? !live.micOn : participant.isMuted}
+                  cameraOn={live ? live.cameraOn : false}
+                  stream={live?.stream ?? null}
+                  handRaised={live?.handRaised ?? false}
+                />
+              );
+            })}
           </div>
-          {others.map((participant) => {
-            const live = liveByUserId.get(participant.userId);
-            return (
-              <VideoTile
-                key={participant.userId}
-                name={participant.name}
-                isHost={participant.isHost}
-                isMuted={live ? !live.micOn : participant.isMuted}
-                cameraOn={live ? live.cameraOn : false}
-                stream={live?.stream ?? null}
-              />
-            );
-          })}
+        )}
+
+      {captionsOn && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4 sm:bottom-28">
+          {captionText ? (
+            <div className="max-w-2xl rounded-lg bg-black/85 px-5 py-3 shadow-xl">
+              <p className="text-xs font-semibold text-accent">{me.name ?? me.email}</p>
+              <p className="text-base text-white">{captionText}</p>
+            </div>
+          ) : (
+            <p className="rounded-lg bg-black/60 px-4 py-2 text-sm text-white/70 shadow-xl">
+              Captions on — listening for speech...
+            </p>
+          )}
         </div>
+      )}
+
+        {timerRemaining !== null && (
+          <div className="absolute right-4 top-4 z-20 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-white backdrop-blur">
+            {Math.floor(timerRemaining / 60)}:{String(timerRemaining % 60).padStart(2, "0")}
+          </div>
+        )}
       </main>
 
       {menuOpen && (
@@ -529,7 +1145,101 @@ export default function RoomPage() {
               </button>
             </>
           )}
-          <button onClick={() => { handleScreenShareClick(); setMenuOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10"><Captions size={18} /><span>More meeting options</span></button>
+          <button
+            onClick={() => {
+              toggleCaptions();
+              setMenuOpen(false);
+            }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10"
+          >
+            <Captions size={18} />
+            <span>{captionsOn ? "Turn off captions" : "Turn on captions"}</span>
+          </button>
+        </div>
+      )}
+
+      {showReadyCard && (
+        <div className="absolute left-4 top-16 z-30 w-full max-w-sm rounded-2xl bg-[#202124] p-5 text-white shadow-2xl sm:top-20">
+          <div className="flex items-start justify-between">
+            <h2 className="text-lg font-medium">Your meeting&apos;s ready</h2>
+            <button
+              onClick={() => setShowReadyCard(false)}
+              aria-label="Close"
+              className="rounded-full p-1 text-white/50 hover:bg-white/10 hover:text-white"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <button
+            onClick={async () => {
+              const link = `${window.location.origin}/room/${token}`;
+              if (navigator.share) {
+                try {
+                  await navigator.share({ title: "Join my Veyra meeting", url: link });
+                  return;
+                } catch {
+                  // User cancelled the native share sheet — fall through to copy instead.
+                }
+              }
+              await navigator.clipboard.writeText(link);
+              toast.success("Link copied — share it with the people you want to add.");
+            }}
+            className="mt-4 flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+          >
+            <UserPlus size={16} />
+            Add others
+          </button>
+
+          <p className="mt-4 text-sm text-white/60">Or share this meeting link with others that you want in the meeting</p>
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5">
+            <span className="truncate text-sm text-white/85">{`${typeof window !== "undefined" ? window.location.host : ""}/room/${token}`}</span>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(`${window.location.origin}/room/${token}`);
+                setLinkCopied(true);
+                toast.success("Link copied.");
+                setTimeout(() => setLinkCopied(false), 1500);
+              }}
+              aria-label="Copy link"
+              className="shrink-0 text-white/60 hover:text-white"
+            >
+              {linkCopied ? <Check size={16} /> : <Copy size={16} />}
+            </button>
+          </div>
+
+          <p className="mt-4 flex items-start gap-2 text-xs text-white/45">
+            <Lock size={13} className="mt-0.5 shrink-0" />
+            People who use this meeting link must be let in by you, unless the meeting is
+            unlocked.
+          </p>
+        </div>
+      )}
+
+      {showShareWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-sm rounded-2xl bg-[#202124] p-6 text-white shadow-2xl">
+            <h2 className="text-lg font-medium">Before you share...</h2>
+            <p className="mt-2 text-sm text-white/70">
+              Don&apos;t share your entire screen or this browser tab — sharing the tab this
+              meeting is running in creates an infinite mirror (your shared screen showing
+              itself, showing itself...). Share a different window or tab instead.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setShowShareWarning(false)}
+                className="rounded-full px-4 py-2 text-sm font-medium text-white/70 hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startScreenShare}
+                className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Continue anyway
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -541,12 +1251,32 @@ export default function RoomPage() {
         onToggleCamera={toggleCamera}
         onToggleParticipants={() => setActivePanel("people")}
         onScreenShareClick={handleScreenShareClick}
+        sharingScreen={sharingScreen}
+        handRaised={handRaised}
+        onToggleHandRaise={handleToggleHandRaise}
+        onReact={handleReact}
+        captionsOn={captionsOn}
+        onToggleCaptions={toggleCaptions}
         onMoreClick={() => setMenuOpen((value) => !value)}
         onLeave={handleLeave}
-        leaving={leaving}
+        leaving={leaving || ending}
         onChat={() => setActivePanel("chat")}
         onTools={() => setActivePanel("tools")}
       />
+
+      {reactions.length > 0 && (
+        <div className="pointer-events-none absolute bottom-24 left-1/2 z-40 flex -translate-x-1/2 flex-col items-center gap-1">
+          {reactions.map((r) => (
+            <div
+              key={r.id}
+              className="animate-[float-up_3s_ease-out_forwards] rounded-full bg-black/40 px-3 py-1 text-sm text-white backdrop-blur"
+            >
+              <span className="mr-1.5 text-lg">{r.emoji}</span>
+              {r.fromName}
+            </div>
+          ))}
+        </div>
+      )}
 
       <MeetingPanel
         panel={panel}
@@ -557,6 +1287,16 @@ export default function RoomPage() {
         onRemove={handleRemoveParticipant}
         message={message}
         setMessage={setMessage}
+        captionsOn={captionsOn}
+        onToggleCaptions={toggleCaptions}
+        layoutMode={layoutMode}
+        onCycleLayout={cycleLayout}
+        timerRemaining={timerRemaining}
+        onStartTimer={startTimer}
+        onStopTimer={stopTimer}
+        chatMessages={chatMessages}
+        onSendChat={sendChatMessage}
+        myUserId={me.id}
       />
 
     </div>
