@@ -62,3 +62,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 
   return NextResponse.json({ invited: emails });
 }
+
+
+/** Host-only. Returns the current email invite list for the meeting. */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const auth = requireAuth(req);
+  if (!auth) return unauthorized();
+  const { token } = await params;
+  const meeting = await prisma.meeting.findUnique({ where: { token } });
+  if (!meeting) return NextResponse.json({ error: "No meeting found with that room code." }, { status: 404 });
+  if (meeting.hostId !== auth.sub) return NextResponse.json({ error: "Only the host can view invitations." }, { status: 403 });
+
+  const invites = await prisma.invite.findMany({
+    where: { meetingId: meeting.id },
+    orderBy: { invitedAt: "asc" },
+    select: { id: true, email: true, invitedAt: true },
+  });
+  return NextResponse.json({ invites });
+}

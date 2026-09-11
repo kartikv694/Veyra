@@ -54,8 +54,12 @@ export interface RemotePeer {
 export interface MeetingRoomCallbacks {
   /** The host force-muted *you* specifically (not just any peer). */
   onForceMuted?: () => void;
+  /** The host allowed your microphone to be turned back on. */
+  onForceUnmuted?: () => void;
   /** The host force-turned-off *your* camera specifically. */
   onForceCameraOff?: () => void;
+  /** The host allowed your camera to be turned back on. */
+  onForceCameraOn?: () => void;
   /** The host removed *you* from the meeting. */
   onRemoved?: () => void;
   /** The host ended the meeting for everyone. */
@@ -64,17 +68,42 @@ export interface MeetingRoomCallbacks {
   onReaction?: (emoji: string, fromName: string) => void;
   /** A chat message arrived (including your own, echoed back — see server.ts). */
   onChatMessage?: (message: { text: string; fromName: string; fromUserId: number; at: number }) => void;
-<<<<<<< HEAD
   /** Someone is asking to join — only ever fires for the host, since
    *  that's the only person the server pushes this to. */
   onJoinRequest?: (request: { requestId: number; userId: number; name: string }) => void;
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
+  onPeerJoined?: (peer: { socketId: string; userId: number; name: string }) => void;
+  onPeerLeft?: (peer: { socketId: string; userId: number }) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
+
+/** Keep the full-mesh topology usable on normal laptops. Each participant
+ * uploads one camera stream to every other participant, so an uncapped
+ * 720p sender can consume a surprising amount of CPU and upstream bandwidth.
+ * These are browser-side hints; WebRTC may choose a lower bitrate when the
+ * network is constrained.
+ */
+function tuneSender(sender: RTCRtpSender, kind: "audio" | "video", screen = false): void {
+  try {
+    const parameters = sender.getParameters();
+    const encoding = parameters.encodings?.[0] ?? {};
+    if (kind === "video") {
+      encoding.maxBitrate = screen ? 1_500_000 : 850_000;
+      encoding.maxFramerate = screen ? 15 : 24;
+      parameters.encodings = [encoding];
+      parameters.degradationPreference = "balanced";
+    } else {
+      encoding.maxBitrate = 64_000;
+      parameters.encodings = [encoding];
+    }
+    void sender.setParameters(parameters).catch(() => undefined);
+  } catch {
+    // Older browsers may not expose sender parameter tuning. The call still
+    // works; the browser simply uses its normal WebRTC bitrate controller.
+  }
+}
 
 export function useMeetingRoom(
   roomToken: string,
@@ -121,7 +150,10 @@ export function useMeetingRoom(
     Object.values(pcsRef.current).forEach((pc) => {
       const alreadySending = new Set(pc.getSenders().map((s) => s.track));
       localStream.getTracks().forEach((track) => {
-        if (!alreadySending.has(track)) pc.addTrack(track, localStream);
+        if (!alreadySending.has(track)) {
+          const sender = pc.addTrack(track, localStream);
+          tuneSender(sender, track.kind === "video" ? "video" : "audio");
+        }
       });
     });
   }, [localStream]);
@@ -145,7 +177,8 @@ export function useMeetingRoom(
       const pc = new RTCPeerConnection(ICE_SERVERS);
 
       localStreamRef.current?.getTracks().forEach((track) => {
-        pc.addTrack(track, localStreamRef.current!);
+        const sender = pc.addTrack(track, localStreamRef.current!);
+        tuneSender(sender, track.kind === "video" ? "video" : "audio");
       });
 
       pc.onicecandidate = (event) => {
@@ -194,10 +227,6 @@ export function useMeetingRoom(
       };
 
       pc.ontrack = (event) => {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
         const incomingStream = event.streams[0] ?? null;
         setPeers((prev) => {
           const existing =
@@ -223,18 +252,6 @@ export function useMeetingRoom(
           }
           return { ...prev, [socketId]: { ...existing, screenStream: incomingStream } };
         });
-<<<<<<< HEAD
-=======
-=======
-        setPeers((prev) => ({
-          ...prev,
-          [socketId]: {
-            ...(prev[socketId] ?? { socketId, userId, name, micOn: true, cameraOn: true, handRaised: false }),
-            stream: event.streams[0] ?? null,
-          },
-        }));
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       };
 
       pc.onconnectionstatechange = () => {
@@ -246,15 +263,7 @@ export function useMeetingRoom(
       pcsRef.current[socketId] = pc;
       setPeers((prev) => ({
         ...prev,
-<<<<<<< HEAD
         [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
-=======
-<<<<<<< HEAD
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
-=======
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       }));
       return pc;
     },
@@ -271,12 +280,35 @@ export function useMeetingRoom(
     // environment doesn't provide. Falls back to same-origin only if the
     // env var isn't set, which only works in a local dev setup where both
     // happen to run on the same host.
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
-    const socket = io(socketUrl, { path: "/api/socket", auth: { token, roomToken } });
+    const configuredUrl = process.env.NEXT_PUBLIC_SOCKET_URL?.trim();
+    const socketUrl = configuredUrl || undefined;
+    const socket = io(socketUrl, {
+      path: "/api/socket",
+      auth: { token, roomToken },
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      timeout: 10000,
+    });
     socketRef.current = socket;
 
-    socket.on("connect", () => setConnected(true));
-    socket.on("disconnect", () => setConnected(false));
+    socket.on("connect", () => {
+      setConnected(true);
+      console.info("[Veyra] Socket connected", socket.id, "via", socket.io.engine.transport.name);
+    });
+    socket.on("connect_error", (error) => {
+      setConnected(false);
+      console.error("[Veyra] Socket connection failed", {
+        url: socketUrl ?? window.location.origin,
+        message: error.message,
+        description: error.description,
+      });
+    });
+    socket.on("disconnect", (reason) => {
+      setConnected(false);
+      console.warn("[Veyra] Socket disconnected", reason);
+    });
 
     socket.on(
       "room:peers",
@@ -299,16 +331,9 @@ export function useMeetingRoom(
       // wait for their "webrtc:offer" and answer it below.
       setPeers((prev) => ({
         ...prev,
-<<<<<<< HEAD
         [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
-=======
-<<<<<<< HEAD
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
-=======
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, micOn: true, cameraOn: true, handRaised: false },
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       }));
+      callbacksRef.current.onPeerJoined?.({ socketId, userId, name });
     });
 
     socket.on(
@@ -395,10 +420,6 @@ export function useMeetingRoom(
       },
     );
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     // Explicit signal for screen-share starting/stopping — the actual
     // video shows up via the normal WebRTC track/ontrack flow above, but
     // relying on track-removal events alone to know when a share has
@@ -416,11 +437,6 @@ export function useMeetingRoom(
       },
     );
 
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     socket.on("peer:reaction", ({ emoji, name }: { emoji: string; name: string }) => {
       callbacksRef.current.onReaction?.(emoji, name);
     });
@@ -432,8 +448,9 @@ export function useMeetingRoom(
       },
     );
 
-    socket.on("peer:left", ({ socketId }: { socketId: string }) => {
+    socket.on("peer:left", ({ socketId, userId: leftUserId }: { socketId: string; userId: number }) => {
       removePeer(socketId);
+      callbacksRef.current.onPeerLeft?.({ socketId, userId: leftUserId });
     });
 
     socket.on("participant:force-muted", ({ userId: mutedUserId }: { userId: number }) => {
@@ -450,6 +467,16 @@ export function useMeetingRoom(
       }
     });
 
+    socket.on("participant:force-unmuted", ({ userId: targetUserId }: { userId: number }) => {
+      setPeers((prev) => {
+        const entry = Object.entries(prev).find(([, p]) => p.userId === targetUserId);
+        if (!entry) return prev;
+        const [socketId, peer] = entry;
+        return { ...prev, [socketId]: { ...peer, micOn: true } };
+      });
+      if (targetUserId === myUserIdRef.current) callbacksRef.current.onForceUnmuted?.();
+    });
+
     socket.on("participant:force-camera-off", ({ userId: targetUserId }: { userId: number }) => {
       setPeers((prev) => {
         const entry = Object.entries(prev).find(([, p]) => p.userId === targetUserId);
@@ -460,6 +487,16 @@ export function useMeetingRoom(
       if (targetUserId === myUserIdRef.current) {
         callbacksRef.current.onForceCameraOff?.();
       }
+    });
+
+    socket.on("participant:force-camera-on", ({ userId: targetUserId }: { userId: number }) => {
+      setPeers((prev) => {
+        const entry = Object.entries(prev).find(([, p]) => p.userId === targetUserId);
+        if (!entry) return prev;
+        const [socketId, peer] = entry;
+        return { ...prev, [socketId]: { ...peer, cameraOn: true } };
+      });
+      if (targetUserId === myUserIdRef.current) callbacksRef.current.onForceCameraOn?.();
     });
 
     socket.on("meeting:mute-all", ({ userIds }: { userIds: number[] }) => {
@@ -474,6 +511,18 @@ export function useMeetingRoom(
       if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) {
         callbacksRef.current.onForceMuted?.();
       }
+    });
+
+    socket.on("meeting:unmute-all", ({ userIds }: { userIds: number[] }) => {
+      const targetSet = new Set(userIds);
+      setPeers((prev) => {
+        const next = { ...prev };
+        for (const [socketId, peer] of Object.entries(prev)) {
+          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, micOn: true };
+        }
+        return next;
+      });
+      if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) callbacksRef.current.onForceUnmuted?.();
     });
 
     socket.on("meeting:camera-off-all", ({ userIds }: { userIds: number[] }) => {
@@ -546,10 +595,6 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:chat-message", { text });
   }, []);
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   /**
    * Adds the screen-share track as a NEW, separate sender on every peer
    * connection — the camera's sender is untouched. This is what makes
@@ -559,14 +604,9 @@ export function useMeetingRoom(
    * which is what actually gets it to the other side.
    */
   const addScreenShareTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
-<<<<<<< HEAD
-=======
-=======
-  const replaceVideoTrack = useCallback((track: MediaStreamTrack | null) => {
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     Object.values(pcsRef.current).forEach((pc) => {
-      pc.addTrack(track, stream);
+      const sender = pc.addTrack(track, stream);
+      tuneSender(sender, "video", true);
     });
   }, []);
 
@@ -584,36 +624,17 @@ export function useMeetingRoom(
     });
   }, []);
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   const broadcastScreenShareState = useCallback((sharing: boolean) => {
     socketRef.current?.emit("peer:screen-share-state", { sharing });
   }, []);
 
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   return {
     peers: Object.values(peers),
     connected,
     broadcastMediaState,
-<<<<<<< HEAD
     addScreenShareTrack,
     removeScreenShareTrack,
     broadcastScreenShareState,
-=======
-<<<<<<< HEAD
-    addScreenShareTrack,
-    removeScreenShareTrack,
-    broadcastScreenShareState,
-=======
-    replaceVideoTrack,
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     broadcastHandRaise,
     sendReaction,
     sendChatMessage,

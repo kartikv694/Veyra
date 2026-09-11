@@ -53,7 +53,8 @@ export default function SignupPage() {
       if (!res.ok) {
         if (data.reason === "already_registered") {
           toast.error("That email's already registered — let's sign you in instead.");
-          router.push(`/login?email=${encodeURIComponent(email)}`);
+          const next = new URLSearchParams(window.location.search).get("next");
+          router.push(`/login?email=${encodeURIComponent(email)}${next ? `&next=${encodeURIComponent(next)}` : ""}`);
           return;
         }
         toast.error(data.error ?? "Something went wrong. Please try again.");
@@ -62,7 +63,8 @@ export default function SignupPage() {
 
       saveSession(data.token, data.user);
       toast.success(`Welcome to Veyra, ${data.user.name ?? data.user.email}.`);
-      router.push("/dashboard");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.replace(next && next.startsWith("/") ? next : "/dashboard");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {

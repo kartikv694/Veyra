@@ -21,7 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, LogIn, Copy, Check, Users } from "lucide-react";
+import { Plus, LogIn, Copy, Check, Users, Calendar, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { BrandLink } from "@/components/BrandLink";
 import { UserMenu } from "@/components/UserMenu";
@@ -37,6 +37,7 @@ interface MeetingSummary {
   endAt: string | null;
   isHost: boolean;
   participantCount: number;
+  scheduledAt: string | null;
 }
 
 /** Reads the intent set by the landing page, checking the URL first (the
@@ -58,11 +59,13 @@ export default function DashboardPage() {
   const [roomLink, setRoomLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [joinCode, setJoinCode] = useState("");
-  const [joinPasscode, setJoinPasscode] = useState("");
-  const [needsPasscode, setNeedsPasscode] = useState(false);
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState("");
+  const [scheduleEmails, setScheduleEmails] = useState("");
+  const [scheduling, setScheduling] = useState(false);
   const joinInputRef = useRef<HTMLInputElement>(null);
 
   const loadMeetings = async () => {
@@ -85,17 +88,50 @@ export default function DashboardPage() {
       setRoomLink(data.meeting.link);
       setCopied(false);
       toast.success("Meeting created — taking you in.");
-
       router.push(`/room/${data.meeting.token}?fresh=1`);
-
-      router.push(`/room/${data.meeting.token}?fresh=1`);
-
-      router.push(`/room/${data.meeting.token}`);
-
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleScheduleMeeting = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scheduleDateTime) {
+      toast.error("Choose a date and time first.");
+      return;
+    }
+    const scheduledAt = new Date(scheduleDateTime);
+    if (scheduledAt.getTime() <= Date.now()) {
+      toast.error("Choose a future date and time.");
+      return;
+    }
+    setScheduling(true);
+    try {
+      const emails = scheduleEmails
+        .split(/[,\n]/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean);
+      const res = await fetch("/api/rooms/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ scheduledAt: scheduledAt.toISOString(), emails }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't schedule the meeting.");
+        return;
+      }
+      toast.success("Meeting scheduled.");
+      setScheduleOpen(false);
+      setScheduleDateTime("");
+      setScheduleEmails("");
+      await loadMeetings();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setScheduling(false);
     }
   };
 
@@ -109,33 +145,10 @@ export default function DashboardPage() {
 
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const value = joinCode.trim();
+    if (!value) return;
     setJoining(true);
-    try {
-      const res = await fetch("/api/rooms/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          token: joinCode.trim(),
-          ...(needsPasscode ? { passcode: joinPasscode } : {}),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 401 && data.error?.toLowerCase().includes("passcode")) {
-          setNeedsPasscode(true);
-          toast.error(needsPasscode ? "Incorrect passcode." : "This meeting needs a passcode.");
-          return;
-        }
-        toast.error(data.error ?? "Couldn't join that meeting.");
-        return;
-      }
-      toast.success("Joined the meeting.");
-      router.push(`/room/${data.meeting.token}`);
-    } catch {
-      toast.error("Couldn't reach the server. Check your connection and try again.");
-    } finally {
-      setJoining(false);
-    }
+    router.push(`/room/${encodeURIComponent(value)}`);
   };
 
   // Auth guard + one-time intent handling, in that order: we don't act on
@@ -203,7 +216,7 @@ export default function DashboardPage() {
         </h1>
         <p className="mt-1 text-sm text-muted">Start a new meeting or join one with a code.</p>
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-edge bg-surface p-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
               <Plus size={18} className="text-accent" />
@@ -231,6 +244,20 @@ export default function DashboardPage() {
           </div>
 
           <div className="rounded-xl border border-edge bg-surface p-6">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
+              <Calendar size={18} className="text-accent" />
+            </div>
+            <h2 className="mt-4 font-display text-lg font-semibold">Schedule meeting</h2>
+            <p className="mt-1 text-sm text-muted">Plan a meeting for a future date and invite people by email.</p>
+            <button
+              onClick={() => setScheduleOpen(true)}
+              className="mt-4 w-full rounded-lg border border-edge py-2.5 text-sm font-semibold transition-colors hover:border-accent hover:text-accent"
+            >
+              Schedule
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-edge bg-surface p-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent2/10">
               <LogIn size={18} className="text-accent2" />
             </div>
@@ -244,23 +271,10 @@ export default function DashboardPage() {
                 value={joinCode}
                 onChange={(e) => {
                   setJoinCode(e.target.value);
-                  setNeedsPasscode(false);
-                  setJoinPasscode("");
                 }}
                 placeholder="e.g. 7fk-2xa-plm"
                 className="w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
               />
-              {needsPasscode && (
-                <input
-                  type="password"
-                  required
-                  autoFocus
-                  value={joinPasscode}
-                  onChange={(e) => setJoinPasscode(e.target.value)}
-                  placeholder="Meeting passcode"
-                  className="w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
-                />
-              )}
               <button
                 type="submit"
                 disabled={joining}
@@ -286,28 +300,63 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate font-medium">{m.token}</p>
                     <p className="text-muted">
-                      {m.isHost ? "You hosted" : "You joined"} · {m.participantCount} participant
-                      {m.participantCount === 1 ? "" : "s"}
-                      {m.endAt ? " · ended" : ""}
+                      {m.scheduledAt ? `Scheduled for ${new Date(m.scheduledAt).toLocaleString()}` : `${m.isHost ? "You hosted" : "You joined"} · ${m.participantCount} participant${m.participantCount === 1 ? "" : "s"}`}{m.endAt ? " · ended" : ""}
                     </p>
                   </div>
                   {m.endAt ? (
-                    <span className="shrink-0 rounded-lg border border-edge bg-surface2 px-3 py-1.5 text-xs font-semibold text-muted">
-                      Ended
-                    </span>
+                    <span className="shrink-0 rounded-lg border border-edge bg-surface2 px-3 py-1.5 text-xs font-semibold text-muted">Ended</span>
+                  ) : m.scheduledAt && new Date(m.scheduledAt).getTime() > Date.now() ? (
+                    <span className="shrink-0 rounded-lg border border-edge bg-surface2 px-3 py-1.5 text-xs font-semibold text-accent">Scheduled</span>
                   ) : (
                     <button
                       onClick={() => router.push(`/room/${m.token}`)}
                       className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs font-semibold transition-colors hover:border-accent hover:text-accent"
-                    >
-                      Rejoin
-                    </button>
+                    >Rejoin</button>
                   )}
                 </li>
               ))}
             </ul>
           )}
         </div>
+
+        {scheduleOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+            <form onSubmit={handleScheduleMeeting} className="w-full max-w-md rounded-2xl border border-edge bg-surface p-6 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-xl font-semibold">Schedule meeting</h2>
+                  <p className="mt-1 text-sm text-muted">Choose when you want the meeting to start.</p>
+                </div>
+                <button type="button" onClick={() => setScheduleOpen(false)} className="rounded-full p-2 text-muted hover:bg-surface2 hover:text-fg" aria-label="Close">
+                  <X size={18} />
+                </button>
+              </div>
+              <label className="mt-5 block text-sm font-medium">Date and time
+                <input
+                  type="datetime-local"
+                  required
+                  value={scheduleDateTime}
+                  onChange={(e) => setScheduleDateTime(e.target.value)}
+                  min={new Date(Date.now() + 60_000).toISOString().slice(0,16)}
+                  className="mt-2 w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                />
+              </label>
+              <label className="mt-4 block text-sm font-medium">Invite emails <span className="font-normal text-muted">(optional)</span>
+                <textarea
+                  value={scheduleEmails}
+                  onChange={(e) => setScheduleEmails(e.target.value)}
+                  placeholder="name@example.com, another@example.com"
+                  rows={3}
+                  className="mt-2 w-full resize-none rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                />
+              </label>
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setScheduleOpen(false)} className="rounded-lg px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface2">Cancel</button>
+                <button type="submit" disabled={scheduling} className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{scheduling ? "Scheduling..." : "Schedule meeting"}</button>
+              </div>
+            </form>
+          </div>
+        )}
       </main>
     </div>
   );

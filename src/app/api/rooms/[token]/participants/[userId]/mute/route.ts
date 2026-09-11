@@ -49,12 +49,20 @@ export async function POST(
     const resolved = await resolveHostAction(auth , token, targetUserId);
     if(!resolved.ok) return resolved.response;
 
+    const current = await prisma.participants.findUnique({
+        where: { id: resolved.target.id },
+        select: { isMuted: true },
+    });
+    if (!current) {
+        return NextResponse.json({ error: "That person isn't currently in this meeting." }, { status: 404 });
+    }
+    const muted = !current.isMuted;
     await prisma.participants.update({
-        where: {id: resolved.target.id} ,
-        data: {isMuted: true} , 
+        where: { id: resolved.target.id },
+        data: { isMuted: muted },
     });
 
-    emitToMeeting(token, "participant:force-muted", { userId: targetUserId });
+    emitToMeeting(token, muted ? "participant:force-muted" : "participant:force-unmuted", { userId: targetUserId });
 
-    return NextResponse.json({muted: targetUserId});    
+    return NextResponse.json({ userId: targetUserId, muted });
 }

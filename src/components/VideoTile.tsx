@@ -7,7 +7,7 @@
  * gives every participant a live speaking indicator without sending audio
  * levels through Socket.IO.
  */
-import { useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { AudioWaveform, Hand, MicOff } from "lucide-react";
 
 interface VideoTileProps {
@@ -24,21 +24,12 @@ interface VideoTileProps {
   /** Set false for full-bleed views (solo camera, presenting) to match
    *  Meet's edge-to-edge look. Defaults true for grid/thumbnail tiles. */
   rounded?: boolean;
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   /** Mirrors the video horizontally — set true for your own camera (a
    *  natural mirror-image self-view, matching every video call app), but
    *  NEVER for a screen share (mirroring shared content backwards would
    *  make it unreadable) or a remote participant's camera (only correct
    *  from their own vantage point, not ours). */
   mirrored?: boolean;
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 }
 
 function initials(name: string): string {
@@ -69,7 +60,7 @@ function SpeakingIndicator({ speaking }: { speaking: boolean }) {
   );
 }
 
-export function VideoTile({
+function VideoTile({
   name,
   isHost = false,
   isMuted = false,
@@ -78,14 +69,7 @@ export function VideoTile({
   isLocal = false,
   handRaised = false,
   rounded = true,
-<<<<<<< HEAD
   mirrored = false,
-=======
-<<<<<<< HEAD
-  mirrored = false,
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 }: VideoTileProps) {
   const [speaking, setSpeaking] = useState(false);
 
@@ -102,27 +86,37 @@ export function VideoTile({
 
     const audioContext = new AudioContextClass();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.72;
+    // A smaller FFT and a slower sampling interval are enough for a
+    // speaking indicator and substantially reduce CPU use when a room has
+    // many tiles. The previous 512-bin / 90ms loop created a separate audio
+    // analyser workload for every participant tile.
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.78;
 
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
     const samples = new Uint8Array(analyser.fftSize);
     let frame = 0;
+    let previousSpeaking = false;
 
     const detect = () => {
       analyser.getByteTimeDomainData(samples);
 
       let sum = 0;
-      for (const sample of samples) {
-        const normalized = (sample - 128) / 128;
+      for (let i = 0; i < samples.length; i += 1) {
+        const normalized = (samples[i] - 128) / 128;
         sum += normalized * normalized;
       }
 
-      const rms = Math.sqrt(sum / samples.length);
-      setSpeaking(rms > 0.045);
-      frame = window.setTimeout(detect, 90);
+      const nextSpeaking = Math.sqrt(sum / samples.length) > 0.045;
+      // Avoid a React render every sample when the speaking state hasn't
+      // actually changed.
+      if (nextSpeaking !== previousSpeaking) {
+        previousSpeaking = nextSpeaking;
+        setSpeaking(nextSpeaking);
+      }
+      frame = window.setTimeout(detect, 180);
     };
 
     if (audioContext.state === "suspended") {
@@ -192,3 +186,7 @@ export function VideoTile({
     </div>
   );
 }
+
+export const MemoizedVideoTile = memo(VideoTile);
+export { MemoizedVideoTile as VideoTile } ;
+export default MemoizedVideoTile;

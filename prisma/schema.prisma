@@ -97,6 +97,10 @@ model Meeting {
   /// When the meeting room was created (i.e. when the host started it).
   createdAt DateTime @default(now())
 
+  /// Optional future start time for meetings created through the scheduler.
+  /// Null means the meeting is available immediately.
+  scheduledAt DateTime?
+
   /// When the meeting ended. `null` while the meeting is still live/open;
   /// set once the host ends it or the room is otherwise closed.
   endAt DateTime?
@@ -118,6 +122,9 @@ model Meeting {
 
   /// Last time this record was modified. Maintained automatically by Prisma.
   updatedAt DateTime @updatedAt
+
+  @@index([hostId, createdAt])
+  @@index([scheduledAt])
 }
 
 /// Join record linking a `User` to a `Meeting` they participated in.
@@ -167,8 +174,9 @@ model Participants {
   /// A user can only have one active/historical participant row per
   /// meeting — prevents duplicate join records for the same user+meeting.
   @@unique([meetingId, userId])
+  @@index([userId, leftAt])
+  @@index([meetingId, leftAt])
 }
-<<<<<<< HEAD
 
 /// An email address the host has explicitly invited to a meeting, ahead
 /// of them actually joining. Someone joining whose account email matches
@@ -231,6 +239,7 @@ model JoinRequest {
   /// One outstanding request per user per meeting — re-asking replaces
   /// rather than duplicates (see the join route, which upserts this).
   @@unique([meetingId, userId])
+  @@index([meetingId, status])
 }
 
 enum JoinRequestStatus {
@@ -238,5 +247,3 @@ enum JoinRequestStatus {
   ADMITTED
   DENIED
 }
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9

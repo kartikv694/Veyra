@@ -12,6 +12,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { createUniqueRoomToken, buildRoomLink } from "@/lib/room-code";
 
@@ -77,6 +78,19 @@ export async function GET(req: NextRequest) {
     include: { _count: { select: { participants: true } } },
   });
 
+  // The generated Prisma client in older checkouts may not know about
+  // scheduledAt yet, so keep the compatibility query narrow: only fetch the
+  // meeting IDs already visible on this dashboard instead of scanning the
+  // entire Meeting table on every dashboard load.
+  const ids = meetings.map((m) => m.id);
+  const scheduledRows = ids.length
+    ? await prisma.$queryRaw<Array<{ id: number; scheduledAt: Date | null }>>`
+        SELECT "id", "scheduledAt" FROM "Meeting"
+        WHERE "id" IN (${Prisma.join(ids)})
+      `
+    : [];
+  const scheduledById = new Map(scheduledRows.map((row) => [row.id, row.scheduledAt]));
+
   return NextResponse.json({
     meetings: meetings.map((m) => ({
       id: m.id,
@@ -84,6 +98,7 @@ export async function GET(req: NextRequest) {
       link: buildRoomLink(m.token),
       createdAt: m.createdAt,
       endAt: m.endAt,
+      scheduledAt: scheduledById.get(m.id) ?? null,
       isHost: m.hostId === auth.sub,
       participantCount: m._count.participants,
     })),

@@ -53,7 +53,8 @@ export default function LoginPage() {
       if (!res.ok) {
         if (data.reason === "not_registered") {
           toast.error("No account found for that email — let's get you signed up.");
-          router.push(`/signup?email=${encodeURIComponent(email)}`);
+          const next = new URLSearchParams(window.location.search).get("next");
+          router.push(`/signup?email=${encodeURIComponent(email)}${next ? `&next=${encodeURIComponent(next)}` : ""}`);
           return;
         }
         toast.error(data.error ?? "Something went wrong. Please try again.");
@@ -62,7 +63,8 @@ export default function LoginPage() {
 
       saveSession(data.token, data.user);
       toast.success(`Welcome back, ${data.user.name ?? data.user.email}.`);
-      router.replace("/dashboard");
+      const next = new URLSearchParams(window.location.search).get("next");
+      router.replace(next && next.startsWith("/") ? next : "/dashboard");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     } finally {

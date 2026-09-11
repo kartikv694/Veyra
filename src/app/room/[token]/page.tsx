@@ -22,22 +22,13 @@ import {
   VideoOff,
   X,
 } from "lucide-react";
-<<<<<<< HEAD
 import { BrandLink } from "@/components/BrandLink";
-=======
-<<<<<<< HEAD
-import { BrandLink } from "@/components/BrandLink";
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 import { toast, confirmToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
 import { ParticipantList, type ParticipantRow } from "@/components/ParticipantList";
 import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
 import { useMeetingRoom } from "@/hooks/useMeetingRoom";
-
-const ROSTER_POLL_MS = 8000;
 
 /**
  * The Web Speech API's SpeechRecognition isn't part of TypeScript's
@@ -71,6 +62,32 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function ReadyMeetingCard({
+  token, inviteInput, setInviteInput, inviting, handleInvite, linkCopied, setLinkCopied, onClose,
+}: {
+  token: string; inviteInput: string; setInviteInput: (value: string) => void; inviting: boolean;
+  handleInvite: () => Promise<void>; linkCopied: boolean; setLinkCopied: (value: boolean) => void; onClose: () => void;
+}) {
+  const link = typeof window !== "undefined" ? `${window.location.origin}/room/${token}` : `/room/${token}`;
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(link); setLinkCopied(true); toast.success("Link copied.");
+    window.setTimeout(() => setLinkCopied(false), 1500);
+  };
+  return (
+    <div className="fixed left-4 top-16 z-[70] w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-[#202124] p-5 text-white shadow-2xl sm:left-6 sm:top-20">
+      <div className="flex items-start justify-between"><h2 className="text-lg font-medium">Your meeting&apos;s ready</h2>
+        <button onClick={onClose} aria-label="Close" className="rounded-full p-1 text-white/50 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
+      <p className="mt-2 text-sm text-white/60">Add people to your meeting or share the link. People on the invite list can join directly.</p>
+      <button onClick={async () => { if (navigator.share) { try { await navigator.share({ title: "Join my Veyra meeting", url: link }); return; } catch { } } await copyLink(); }} className="mt-4 flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"><UserPlus size={16} /> Add others</button>
+      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5"><span className="truncate text-sm text-white/85">{typeof window !== "undefined" ? window.location.host : "localhost:3000"}/room/{token}</span><button onClick={() => void copyLink()} aria-label="Copy link" className="shrink-0 text-white/60 hover:text-white">{linkCopied ? <Check size={16} /> : <Copy size={16} />}</button></div>
+      <p className="mt-4 flex items-start gap-2 text-xs text-white/45"><Lock size={13} className="mt-0.5 shrink-0" />People who use the link must be admitted unless their email is on the meeting invite list.</p>
+      <div className="mt-4 border-t border-white/10 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-white/35">Invite by email</p><p className="mt-1 text-xs text-white/45">Add one or more email addresses. They can join directly once they sign in with that email.</p>
+        <div className="mt-2 flex gap-2"><input value={inviteInput} onChange={e => setInviteInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void handleInvite(); } }} placeholder="name@example.com, another@example.com" className="min-w-0 flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30" /><button onClick={() => void handleInvite()} disabled={inviting || !inviteInput.trim()} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">{inviting ? "..." : "Invite"}</button></div>
+      </div>
+    </div>
+  );
+}
+
 function MeetingPanel({
   panel,
   participants,
@@ -80,7 +97,12 @@ function MeetingPanel({
   onCameraOff,
   onRemove,
   onMuteAll,
+  onUnmuteAll,
   onCameraOffAll,
+  onCameraOnAll,
+  pendingRequests,
+  onAdmit,
+  onDeny,
   message,
   setMessage,
   captionsOn,
@@ -102,7 +124,12 @@ function MeetingPanel({
   onCameraOff: (userId: number) => void;
   onRemove: (userId: number) => void;
   onMuteAll: () => void;
+  onUnmuteAll: () => void;
   onCameraOffAll: () => void;
+  onCameraOnAll: () => void;
+  pendingRequests: { id: number; userId: number; name: string; requestedAt: string }[];
+  onAdmit: (requestId: number) => void;
+  onDeny: (requestId: number) => void;
   message: string;
   setMessage: (value: string) => void;
   captionsOn: boolean;
@@ -130,7 +157,12 @@ function MeetingPanel({
           onCameraOff={onCameraOff}
           onRemove={onRemove}
           onMuteAll={onMuteAll}
+          onUnmuteAll={onUnmuteAll}
           onCameraOffAll={onCameraOffAll}
+          onCameraOnAll={onCameraOnAll}
+          pendingRequests={pendingRequests}
+          onAdmit={onAdmit}
+          onDeny={onDeny}
         />
       )}
 
@@ -162,9 +194,8 @@ function MeetingPanel({
                       {isMine ? "You" : msg.fromName} · {formatTime(new Date(msg.at))}
                     </span>
                     <span
-                      className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${
-                        isMine ? "bg-accent text-white" : "bg-[#2b2c30] text-white/90"
-                      }`}
+                      className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-sm ${isMine ? "bg-accent text-white" : "bg-[#2b2c30] text-white/90"
+                        }`}
                     >
                       {msg.text}
                     </span>
@@ -242,9 +273,8 @@ function MeetingPanel({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={onToggleCaptions}
-                  className={`rounded-2xl border p-4 text-left transition ${
-                    captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
-                  }`}
+                  className={`rounded-2xl border p-4 text-left transition ${captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
+                    }`}
                 >
                   <Captions size={19} className="mb-3" />
                   <span className="text-sm">{captionsOn ? "Captions on" : "Captions"}</span>
@@ -272,16 +302,15 @@ export default function RoomPage() {
 
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [joined, setJoined] = useState(false);
+  const [isHost, setIsHost] = useState(false);
+  const [hostCheckDone, setHostCheckDone] = useState(false);
   const [joining, setJoiningRoom] = useState(false);
-<<<<<<< HEAD
   const [waitingForAdmission, setWaitingForAdmission] = useState(false);
   const [pendingRequests, setPendingRequests] = useState<
     { id: number; userId: number; name: string; requestedAt: string }[]
   >([]);
   const [inviteInput, setInviteInput] = useState("");
   const [inviting, setInviting] = useState(false);
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   const [me, setMe] = useState<SessionUser | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -296,24 +325,16 @@ export default function RoomPage() {
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [showShareWarning, setShowShareWarning] = useState(false);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   // Lazy initializer runs synchronously during the very first render, on
   // the client — reading window.location.search here (rather than in a
   // useEffect that runs after mount) removes any timing gap where a
   // stale/not-yet-updated URL could be read relative to Next's
   // client-side navigation finishing.
-  const [showReadyCard, setShowReadyCard] = useState(
-    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("fresh") === "1",
-  );
+  // The ready card is enabled only after the server confirms that the
+  // authenticated user is the meeting host. A `fresh=1` URL alone must
+  // never put a participant into the host UI.
+  const [showReadyCard, setShowReadyCard] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   const [handRaised, setHandRaised] = useState(false);
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionText, setCaptionText] = useState("");
@@ -339,10 +360,6 @@ export default function RoomPage() {
     [router, token],
   );
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   const {
     peers,
     connected,
@@ -354,12 +371,6 @@ export default function RoomPage() {
     sendReaction,
     sendChatMessage,
   } = useMeetingRoom(
-<<<<<<< HEAD
-=======
-=======
-  const { peers, connected, broadcastMediaState, replaceVideoTrack, broadcastHandRaise, sendReaction, sendChatMessage } = useMeetingRoom(
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     token,
     localStream,
     me?.id ?? null,
@@ -369,11 +380,20 @@ export default function RoomPage() {
         setMicOn(false);
         toast.info("The host muted you.");
       },
-<<<<<<< HEAD
+      onForceUnmuted: () => {
+        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = true));
+        setMicOn(true);
+        toast.info("The host allowed your microphone.");
+      },
       onForceCameraOff: () => {
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
         setCameraOn(false);
         toast.info("The host turned off your camera.");
+      },
+      onForceCameraOn: () => {
+        streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = true));
+        setCameraOn(true);
+        toast.info("The host allowed your camera.");
       },
       onJoinRequest: (request) => {
         setPendingRequests((prev) =>
@@ -383,8 +403,26 @@ export default function RoomPage() {
         );
         toast.info(`${request.name} is asking to join.`);
       },
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
+      onPeerJoined: (peer) => {
+        setParticipants((prev) => {
+          const existing = prev.find((p) => p.userId === peer.userId);
+          if (existing) {
+            return prev.map((p) => p.userId === peer.userId ? { ...p, name: peer.name, leftAt: null } : p);
+          }
+          return [...prev, {
+            userId: peer.userId,
+            name: peer.name,
+            isHost: false,
+            isMuted: false,
+            isCameraOff: false,
+            joinedAt: new Date().toISOString(),
+            leftAt: null,
+          }];
+        });
+      },
+      onPeerLeft: ({ userId }) => {
+        setParticipants((prev) => prev.map((p) => p.userId === userId ? { ...p, leftAt: new Date().toISOString() } : p));
+      },
       onRemoved: () => {
         exitMeeting("removed");
       },
@@ -398,37 +436,8 @@ export default function RoomPage() {
         setChatMessages((prev) => [...prev, { id: `${msg.at}-${msg.fromUserId}-${Math.random()}`, ...msg }]);
       },
     },
-<<<<<<< HEAD
     joined,
-=======
-<<<<<<< HEAD
-    joined,
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   );
-
-  const loadRoster = useCallback(async () => {
-    const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
-    if (!res.ok) {
-      if (res.status === 403 || res.status === 404) {
-        toast.error("You're no longer in this meeting.");
-        exitMeeting("left");
-      }
-      return;
-    }
-    const data = await res.json();
-    setParticipants(data.participants);
-    setLocked(Boolean(data.meeting.locked));
-    setPasscodeSet(Boolean(data.meeting.passcodeSet));
-    if (data.meeting.endAt) {
-      exitMeeting("ended");
-    }
-  }, [token, exitMeeting]);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 
   /**
    * What the lobby's "Join now" button actually does: calls the real join
@@ -441,7 +450,7 @@ export default function RoomPage() {
    * succeeds. Before this point you're only ever previewing your own
    * camera locally; nobody else knows you're here yet.
    */
-  const handleJoinFromLobby = async () => {
+  const handleJoinFromLobby = async (hostUserId?: number) => {
     setJoiningRoom(true);
     try {
       const joinRes = await fetch("/api/rooms/join", {
@@ -450,7 +459,6 @@ export default function RoomPage() {
         body: JSON.stringify({ token }),
       });
       const data = await joinRes.json().catch(() => ({}));
-<<<<<<< HEAD
 
       if (joinRes.status === 202) {
         // Not pre-approved — the host has to admit us. Show the waiting
@@ -458,13 +466,20 @@ export default function RoomPage() {
         setWaitingForAdmission(true);
         return;
       }
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       if (!joinRes.ok) {
         toast.error(data.error ?? "Couldn't join this meeting.");
         return;
       }
-      await loadRoster();
+      if (Array.isArray(data.participants)) setParticipants(data.participants);
+      if (data.meeting) {
+        setLocked(Boolean(data.meeting.locked));
+        setPasscodeSet(Boolean(data.meeting.passcodeSet));
+      }
+      const fresh = new URLSearchParams(window.location.search).get("fresh") === "1";
+      if (fresh && data.meeting?.hostId === (hostUserId ?? me?.id)) {
+        setShowReadyCard(true);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
       setJoined(true);
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -472,7 +487,6 @@ export default function RoomPage() {
       setJoiningRoom(false);
     }
   };
-<<<<<<< HEAD
 
   // While waiting to be admitted, poll for a decision. This can't use
   // the meeting socket — that only accepts connections from people who
@@ -493,7 +507,12 @@ export default function RoomPage() {
             body: JSON.stringify({ token }),
           });
           if (joinRes.ok) {
-            await loadRoster();
+            const joinedData = await joinRes.json().catch(() => ({}));
+            if (Array.isArray(joinedData.participants)) setParticipants(joinedData.participants);
+            if (joinedData.meeting) {
+              setLocked(Boolean(joinedData.meeting.locked));
+              setPasscodeSet(Boolean(joinedData.meeting.passcodeSet));
+            }
             setJoined(true);
           }
         } else if (data.status === "DENIED") {
@@ -507,22 +526,11 @@ export default function RoomPage() {
     };
     const id = setInterval(poll, 3000);
     return () => clearInterval(id);
-  }, [waitingForAdmission, token, loadRoster, router]);
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
+  }, [waitingForAdmission, token, router]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("fresh") === "1") {
-      // Strip the param so a refresh doesn't re-show the card.
-      window.history.replaceState({}, "", window.location.pathname);
-    }
   }, []);
 
   useEffect(() => {
@@ -532,7 +540,7 @@ export default function RoomPage() {
       if (cancelled) return;
       if (!user) {
         toast.error("Please sign in to continue.");
-        router.push("/login");
+        router.push(`/login?next=${encodeURIComponent(`/room/${token}`)}`);
         return;
       }
 
@@ -540,7 +548,10 @@ export default function RoomPage() {
       setCheckingAuth(false);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { aspectRatio: { ideal: 16 / 9 }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          // 960x540 is a good local preview target for a mesh call: the
+          // browser still adapts to the display, while camera capture and
+          // encoding start with less CPU pressure than a 1280x720 request.
+          video: { aspectRatio: { ideal: 16 / 9 }, width: { ideal: 960 }, height: { ideal: 540 } },
           audio: true,
         });
         if (cancelled) {
@@ -574,28 +585,45 @@ export default function RoomPage() {
         }
       }
 
-      // Skip the lobby for the host — matches Meet: the person who
-      // created (or owns) the meeting goes straight in, since they were
-      // just setting up their own camera a moment ago on the dashboard.
-      // The lobby is for people arriving via a link/code, not the host
-      // arriving at their own room. This only works because creating a
-      // meeting already adds the host as an active participant in the
-      // same transaction (see POST /api/rooms), so this fetch succeeds
-      // even on their very first visit — a genuine first-time visitor who
-      // isn't a participant yet gets 403 here and falls through to the
-      // lobby, which is correct for them.
+      // The host bypasses the participant lobby. This small access lookup
+      // also avoids the old sequence of GET room -> POST join -> GET room:
+      // once we know the host, the join response is used to populate the
+      // roster directly.
       try {
-        const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
+        const res = await fetch(`/api/rooms/${token}`, {
+          headers: authHeaders(),
+          cache: "no-store",
+        });
+
         if (cancelled) return;
+
         if (res.ok) {
           const data = await res.json();
-          if (data.meeting.hostId === user.id) {
-            void handleJoinFromLobby();
+
+          const userIsHost = data.meeting?.hostId === user.id;
+
+          setIsHost(userIsHost);
+          setHostCheckDone(true);
+
+          if (userIsHost) {
+            if (Array.isArray(data.participants)) {
+              setParticipants(data.participants);
+            }
+
+            setLocked(Boolean(data.meeting?.locked));
+            setPasscodeSet(Boolean(data.meeting?.passcodeSet));
+
+            // Hosts bypass the participant lobby completely.
+            // Pass the authenticated user's id directly so the fresh=1
+            // ready-card check does not depend on asynchronous React state.
+            void handleJoinFromLobby(user.id);
           }
+        } else {
+          setHostCheckDone(true);
         }
       } catch {
-        // Network hiccup on the precheck — not fatal, just falls through
-        // to the normal lobby, where "Join now" retries everything anyway.
+        // Network hiccup — allow the normal participant flow to continue.
+        setHostCheckDone(true);
       }
     })();
     return () => {
@@ -604,13 +632,6 @@ export default function RoomPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!joined) return;
-    const id = setInterval(loadRoster, ROSTER_POLL_MS);
-    return () => clearInterval(id);
-  }, [joined, loadRoster]);
-<<<<<<< HEAD
 
   useEffect(() => {
     if (!joined) return;
@@ -624,8 +645,6 @@ export default function RoomPage() {
       })
       .catch(() => undefined);
   }, [joined, token]);
-=======
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 
   const toggleMic = () => {
     const stream = streamRef.current;
@@ -718,10 +737,6 @@ export default function RoomPage() {
       }
     };
     recognition.onend = () => {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       if (recognitionRef.current) {
         try {
           recognition.start();
@@ -739,14 +754,6 @@ export default function RoomPage() {
       toast.error("Couldn't start captions — try toggling them off and on again.");
       return;
     }
-<<<<<<< HEAD
-=======
-=======
-      if (recognitionRef.current) recognition.start();
-    };
-    recognition.start();
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
     recognitionRef.current = recognition;
     setCaptionsOn(true);
     toast.success("Captions on — captioning your own speech.");
@@ -828,20 +835,8 @@ export default function RoomPage() {
     screenStreamRef.current = null;
     setSharingScreen(false);
     setScreenStream(null);
-<<<<<<< HEAD
     broadcastScreenShareState(false);
   }, [removeScreenShareTrack, broadcastScreenShareState]);
-=======
-<<<<<<< HEAD
-    broadcastScreenShareState(false);
-  }, [removeScreenShareTrack, broadcastScreenShareState]);
-=======
-    const cameraTrack = streamRef.current?.getVideoTracks()[0] ?? null;
-    replaceVideoTrack(cameraTrack);
-    broadcastMediaState(micOn, cameraOn);
-  }, [replaceVideoTrack, broadcastMediaState, micOn, cameraOn]);
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 
   const startScreenShare = async () => {
     setShowShareWarning(false);
@@ -861,10 +856,6 @@ export default function RoomPage() {
       screenStreamRef.current = display;
       setSharingScreen(true);
       setScreenStream(display);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       // A genuinely separate sender, not a replacement for the camera
       // track — this is what makes the screen show up as its own tile
       // for everyone else (matching Meet), with your camera still
@@ -872,16 +863,6 @@ export default function RoomPage() {
       // over your camera's slot.
       addScreenShareTrack(screenTrack, display);
       broadcastScreenShareState(true);
-<<<<<<< HEAD
-=======
-=======
-      replaceVideoTrack(screenTrack);
-      // Treat sharing as "video on" for everyone else regardless of the
-      // actual camera toggle, so their tile renders the shared frames
-      // instead of falling back to the avatar.
-      broadcastMediaState(micOn, true);
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       // The browser's own native "Stop sharing" control also needs to revert us.
       screenTrack.onended = stopScreenShare;
       toast.success("Sharing your screen.");
@@ -932,8 +913,8 @@ export default function RoomPage() {
       const res = await fetch(`/api/rooms/${token}/participants/${userId}/mute`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't mute that participant.");
-      toast.success("Participant muted.");
-      await loadRoster();
+      setParticipants((prev) => prev.map((p) => p.userId === data.userId ? { ...p, isMuted: Boolean(data.muted) } : p));
+      toast.success(data.muted ? "Participant muted." : "Participant unmuted.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -944,8 +925,8 @@ export default function RoomPage() {
       const res = await fetch(`/api/rooms/${token}/participants/${userId}/camera-off`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't turn off that participant's camera.");
-      toast.success("Camera turned off.");
-      await loadRoster();
+      setParticipants((prev) => prev.map((p) => p.userId === data.userId ? { ...p, isCameraOff: Boolean(data.cameraOff) } : p));
+      toast.success(data.cameraOff ? "Camera turned off." : "Camera turned on.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -956,8 +937,20 @@ export default function RoomPage() {
       const res = await fetch(`/api/rooms/${token}/mute-all`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't mute everyone.");
+      setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isMuted: true }));
       toast.success("Muted everyone.");
-      await loadRoster();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleUnmuteAll = async () => {
+    try {
+      const res = await fetch(`/api/rooms/${token}/unmute-all`, { method: "POST", headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) return toast.error(data.error ?? "Couldn't unmute everyone.");
+      setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isMuted: false }));
+      toast.success("Allowed microphones for everyone.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -968,8 +961,20 @@ export default function RoomPage() {
       const res = await fetch(`/api/rooms/${token}/camera-off-all`, { method: "POST", headers: authHeaders() });
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't turn off everyone's camera.");
+      setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isCameraOff: true }));
       toast.success("Turned off everyone's camera.");
-      await loadRoster();
+    } catch {
+      toast.error("Couldn't reach the server. Check your connection and try again.");
+    }
+  };
+
+  const handleCameraOnAll = async () => {
+    try {
+      const res = await fetch(`/api/rooms/${token}/camera-on-all`, { method: "POST", headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) return toast.error(data.error ?? "Couldn't turn on everyone's camera.");
+      setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isCameraOff: false }));
+      toast.success("Allowed cameras for everyone.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -984,7 +989,6 @@ export default function RoomPage() {
         toast.error(data.error ?? "Couldn't admit that person.");
         return;
       }
-      await loadRoster();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -1034,7 +1038,6 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't remove that participant.");
       toast.success("Participant removed.");
-      await loadRoster();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
@@ -1102,10 +1105,6 @@ export default function RoomPage() {
   const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);
   const totalTiles = others.length + 1;
   const spotlightFeatured = others.find((p) => p.isHost) ?? others[0] ?? null;
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   // Whoever's screen should be the big tile right now — either mine, or
   // the first other participant currently sharing theirs. Meet only ever
   // shows one screen share at a time in practice, so "first" is fine.
@@ -1118,16 +1117,17 @@ export default function RoomPage() {
       ? (liveByUserId.get(remotePresenter.userId)?.screenStream ?? null)
       : null;
   const presentingName = sharingScreen ? "Your screen" : remotePresenter ? `${remotePresenter.name}'s screen` : "";
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
   const activeParticipantCount = others.length + 1;
 
-  if (checkingAuth || !me) return <div className="min-h-screen bg-[#0f1012]" />;
+  if (checkingAuth || !me) {
+    return <div className="min-h-screen bg-[#0f1012]" />;
+  }
 
-  if (!joined) {
+  if (!hostCheckDone) {
+    return <div className="min-h-screen bg-[#0f1012]" />;
+  }
+
+  if (!joined && !isHost) {
     return (
       <div className="relative flex h-dvh flex-col overflow-hidden bg-[#0f1012] text-white">
         <header className="flex items-center justify-between px-6 py-5 sm:px-10">
@@ -1163,7 +1163,6 @@ export default function RoomPage() {
           </div>
 
           <div className="flex w-full max-w-sm flex-col items-center text-center sm:items-start sm:text-left">
-<<<<<<< HEAD
             <h1 className="font-display text-2xl font-semibold">
               {waitingForAdmission ? "Asking to join..." : "Ready to join?"}
             </h1>
@@ -1175,26 +1174,18 @@ export default function RoomPage() {
               </p>
             ) : (
               <button
-                onClick={handleJoinFromLobby}
+                onClick={() => void handleJoinFromLobby()}
                 disabled={joining}
                 className="mt-6 rounded-full bg-accent px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {joining ? "Joining..." : "Join now"}
               </button>
             )}
-=======
-            <h1 className="font-display text-2xl font-semibold">Ready to join?</h1>
-            <p className="mt-1 text-sm text-white/50">{token}</p>
-            <button
-              onClick={handleJoinFromLobby}
-              disabled={joining}
-              className="mt-6 rounded-full bg-accent px-8 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-            >
-              {joining ? "Joining..." : "Join now"}
-            </button>
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
           </div>
         </main>
+        {showReadyCard && (
+          <ReadyMeetingCard token={token} inviteInput={inviteInput} setInviteInput={setInviteInput} inviting={inviting} handleInvite={handleInvite} linkCopied={linkCopied} setLinkCopied={setLinkCopied} onClose={() => setShowReadyCard(false)} />
+        )}
       </div>
     );
   }
@@ -1228,41 +1219,16 @@ export default function RoomPage() {
         </div>
       </header>
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
         {presentingStream ? (
           <>
             {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
             <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} />
             {/* Floating camera thumbnails — fixed pixel size, absolutely
-<<<<<<< HEAD
-=======
-=======
-      <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-black sm:top-20 sm:bottom-28">
-        {sharingScreen ? (
-          <>
-            {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
-            <VideoTile
-              name="Screen share"
-              cameraOn
-              stream={screenStream}
-              isLocal
-              rounded={false}
-            />
-            {/* Floating self-camera thumbnail — fixed pixel size, absolutely
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
                 positioned, intentionally NOT part of any flex/percentage-height
                 chain. Earlier attempts using a flex strip for this kept
                 breaking (collapsing to full size or disappearing) because
                 percentage heights through several nested flex layers are
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
                 fragile; a fixed-size floating box sidesteps that entirely.
                 Shows everyone's camera — including the presenter's own,
                 and mine, regardless of who's presenting — matching Meet,
@@ -1271,13 +1237,6 @@ export default function RoomPage() {
             <div
               className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
             >
-<<<<<<< HEAD
-=======
-=======
-                fragile; a fixed-size floating box sidesteps that entirely. */}
-            <div className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52">
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
               <VideoTile
                 name={`${me.name ?? me.email} (You)`}
                 isHost={myRow?.isHost ?? false}
@@ -1285,14 +1244,7 @@ export default function RoomPage() {
                 cameraOn={cameraOn}
                 stream={localStream}
                 isLocal
-<<<<<<< HEAD
                 mirrored
-=======
-<<<<<<< HEAD
-                mirrored
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
                 handRaised={handRaised}
               />
             </div>
@@ -1317,10 +1269,6 @@ export default function RoomPage() {
             })}
           </>
         ) : totalTiles === 1 ? (
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
           // Solo view — a real 16:9 box centered in the available space,
           // matching the camera's own requested aspect ratio (see the
           // getUserMedia call above). `h-full` gives the box an actual
@@ -1343,23 +1291,6 @@ export default function RoomPage() {
               />
             </div>
           </div>
-<<<<<<< HEAD
-=======
-=======
-          // Solo view — full-bleed, matching Meet's own edge-to-edge look
-          // when it's just you in the call.
-          <VideoTile
-            name={`${me.name ?? me.email} (You)`}
-            isHost={myRow?.isHost ?? false}
-            isMuted={!micOn}
-            cameraOn={cameraOn}
-            stream={localStream}
-            isLocal
-            handRaised={handRaised}
-            rounded={false}
-          />
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
         ) : layoutMode === "spotlight" ? (
           <div className="flex h-full w-full flex-col gap-2 p-2 sm:gap-3 sm:p-3">
             <div className="min-h-0 flex-1">
@@ -1385,14 +1316,7 @@ export default function RoomPage() {
                   cameraOn={cameraOn}
                   stream={localStream}
                   isLocal
-<<<<<<< HEAD
                   mirrored
-=======
-<<<<<<< HEAD
-                  mirrored
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
                   handRaised={handRaised}
                 />
               )}
@@ -1407,14 +1331,7 @@ export default function RoomPage() {
                     cameraOn={cameraOn}
                     stream={localStream}
                     isLocal
-<<<<<<< HEAD
                     mirrored
-=======
-<<<<<<< HEAD
-                    mirrored
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
                     handRaised={handRaised}
                   />
                 </div>
@@ -1440,9 +1357,8 @@ export default function RoomPage() {
           </div>
         ) : (
           <div
-            className={`grid h-full w-full auto-rows-fr gap-2 p-2 sm:gap-3 sm:p-3 ${
-              totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
-            }`}
+            className={`grid h-full w-full auto-rows-fr gap-2 p-2 sm:gap-3 sm:p-3 ${totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
+              }`}
           >
             <VideoTile
               name={`${me.name ?? me.email} (You)`}
@@ -1451,14 +1367,7 @@ export default function RoomPage() {
               cameraOn={cameraOn}
               stream={localStream}
               isLocal
-<<<<<<< HEAD
               mirrored
-=======
-<<<<<<< HEAD
-              mirrored
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
               handRaised={handRaised}
             />
             {others.map((participant) => {
@@ -1478,41 +1387,20 @@ export default function RoomPage() {
           </div>
         )}
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
-      {captionsOn && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4 sm:bottom-28">
-          {captionText ? (
-            <div className="max-w-2xl rounded-lg bg-black/85 px-5 py-3 shadow-xl">
-              <p className="text-xs font-semibold text-accent">{me.name ?? me.email}</p>
-              <p className="text-base text-white">{captionText}</p>
-            </div>
-          ) : (
-            <p className="rounded-lg bg-black/60 px-4 py-2 text-sm text-white/70 shadow-xl">
-              Captions on — listening for speech...
-            </p>
-          )}
-        </div>
-      )}
-<<<<<<< HEAD
-=======
-=======
         {captionsOn && (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 w-full max-w-2xl -translate-x-1/2 px-4">
+          <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex justify-center px-4 sm:bottom-28">
             {captionText ? (
-              <div className="rounded-lg bg-black/75 px-4 py-2.5 backdrop-blur">
+              <div className="max-w-2xl rounded-lg bg-black/85 px-5 py-3 shadow-xl">
                 <p className="text-xs font-semibold text-accent">{me.name ?? me.email}</p>
-                <p className="text-sm text-white">{captionText}</p>
+                <p className="text-base text-white">{captionText}</p>
               </div>
             ) : (
-              <p className="text-center text-xs text-white/40">Listening for speech...</p>
+              <p className="rounded-lg bg-black/60 px-4 py-2 text-sm text-white/70 shadow-xl">
+                Captions on — listening for speech...
+              </p>
             )}
           </div>
         )}
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
 
         {timerRemaining !== null && (
           <div className="absolute right-4 top-4 z-20 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-white backdrop-blur">
@@ -1552,7 +1440,6 @@ export default function RoomPage() {
         </div>
       )}
 
-<<<<<<< HEAD
       {pendingRequests.length > 0 && (
         <div className="absolute right-4 top-16 z-30 w-full max-w-xs space-y-2 sm:top-20">
           {pendingRequests.map((request) => (
@@ -1579,101 +1466,10 @@ export default function RoomPage() {
         </div>
       )}
 
-=======
-<<<<<<< HEAD
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       {showReadyCard && (
-        <div className="absolute left-4 top-16 z-30 w-full max-w-sm rounded-2xl bg-[#202124] p-5 text-white shadow-2xl sm:top-20">
-          <div className="flex items-start justify-between">
-            <h2 className="text-lg font-medium">Your meeting&apos;s ready</h2>
-            <button
-              onClick={() => setShowReadyCard(false)}
-              aria-label="Close"
-              className="rounded-full p-1 text-white/50 hover:bg-white/10 hover:text-white"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <button
-            onClick={async () => {
-              const link = `${window.location.origin}/room/${token}`;
-              if (navigator.share) {
-                try {
-                  await navigator.share({ title: "Join my Veyra meeting", url: link });
-                  return;
-                } catch {
-                  // User cancelled the native share sheet — fall through to copy instead.
-                }
-              }
-              await navigator.clipboard.writeText(link);
-              toast.success("Link copied — share it with the people you want to add.");
-            }}
-            className="mt-4 flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-          >
-            <UserPlus size={16} />
-            Add others
-          </button>
-
-          <p className="mt-4 text-sm text-white/60">Or share this meeting link with others that you want in the meeting</p>
-          <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5">
-            <span className="truncate text-sm text-white/85">{`${typeof window !== "undefined" ? window.location.host : ""}/room/${token}`}</span>
-            <button
-              onClick={async () => {
-                await navigator.clipboard.writeText(`${window.location.origin}/room/${token}`);
-                setLinkCopied(true);
-                toast.success("Link copied.");
-                setTimeout(() => setLinkCopied(false), 1500);
-              }}
-              aria-label="Copy link"
-              className="shrink-0 text-white/60 hover:text-white"
-            >
-              {linkCopied ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-
-          <p className="mt-4 flex items-start gap-2 text-xs text-white/45">
-            <Lock size={13} className="mt-0.5 shrink-0" />
-            People who use this meeting link must be let in by you, unless the meeting is
-            unlocked.
-          </p>
-<<<<<<< HEAD
-
-          <div className="mt-4 border-t border-white/10 pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-white/35">Invite by email</p>
-            <p className="mt-1 text-xs text-white/45">Invited emails join straight in — no waiting to be admitted.</p>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={inviteInput}
-                onChange={(event) => setInviteInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void handleInvite();
-                  }
-                }}
-                placeholder="name@example.com, another@example.com"
-                className="min-w-0 flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30"
-              />
-              <button
-                onClick={handleInvite}
-                disabled={inviting || !inviteInput.trim()}
-                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {inviting ? "..." : "Invite"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReadyMeetingCard token={token} inviteInput={inviteInput} setInviteInput={setInviteInput} inviting={inviting} handleInvite={handleInvite} linkCopied={linkCopied} setLinkCopied={setLinkCopied} onClose={() => setShowReadyCard(false)} />
       )}
 
-=======
-        </div>
-      )}
-
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
       {showShareWarning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
           <div className="w-full max-w-sm rounded-2xl bg-[#202124] p-6 text-white shadow-2xl">
@@ -1713,16 +1509,8 @@ export default function RoomPage() {
         handRaised={handRaised}
         onToggleHandRaise={handleToggleHandRaise}
         onReact={handleReact}
-<<<<<<< HEAD
         captionsOn={captionsOn}
         onToggleCaptions={toggleCaptions}
-=======
-<<<<<<< HEAD
-        captionsOn={captionsOn}
-        onToggleCaptions={toggleCaptions}
-=======
->>>>>>> 733736ed79c4029fbe4214e84a7768bfbbfee842
->>>>>>> dc45ad85042a0ed028edb93e8c96066328c5a2b9
         onMoreClick={() => setMenuOpen((value) => !value)}
         onLeave={handleLeave}
         leaving={leaving || ending}
@@ -1753,7 +1541,12 @@ export default function RoomPage() {
         onCameraOff={handleCameraOffParticipant}
         onRemove={handleRemoveParticipant}
         onMuteAll={handleMuteAll}
+        onUnmuteAll={handleUnmuteAll}
         onCameraOffAll={handleCameraOffAll}
+        onCameraOnAll={handleCameraOnAll}
+        pendingRequests={pendingRequests}
+        onAdmit={handleAdmit}
+        onDeny={handleDeny}
         message={message}
         setMessage={setMessage}
         captionsOn={captionsOn}

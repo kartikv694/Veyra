@@ -1,6 +1,6 @@
 "use client";
 
-import { Crown, Mic, MicOff, UserX, Video, VideoOff, X } from "lucide-react";
+import { Check, Crown, Mic, MicOff, UserX, Video, VideoOff, X } from "lucide-react";
 
 export interface ParticipantRow {
   userId: number;
@@ -20,7 +20,12 @@ interface ParticipantListProps {
   onCameraOff?: (userId: number) => void;
   onRemove?: (userId: number) => void;
   onMuteAll?: () => void;
+  onUnmuteAll?: () => void;
   onCameraOffAll?: () => void;
+  onCameraOnAll?: () => void;
+  pendingRequests?: { id: number; userId: number; name: string; requestedAt: string }[];
+  onAdmit?: (requestId: number) => void;
+  onDeny?: (requestId: number) => void;
 }
 
 function initials(name: string): string {
@@ -41,7 +46,12 @@ export function ParticipantList({
   onCameraOff,
   onRemove,
   onMuteAll,
+  onUnmuteAll,
   onCameraOffAll,
+  onCameraOnAll,
+  pendingRequests = [],
+  onAdmit,
+  onDeny,
 }: ParticipantListProps) {
   if (!open) return null;
 
@@ -66,22 +76,36 @@ export function ParticipantList({
 
       <div className="px-5 pb-3 text-sm text-white/60">{active.length} in this meeting</div>
 
+      {viewerIsHost && pendingRequests.length > 0 && (
+        <div className="mx-3 mb-3 rounded-2xl border border-white/10 bg-[#2b2c30] p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-white/45">Waiting to join</p>
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs">{pendingRequests.length}</span>
+          </div>
+          <div className="mt-2 space-y-2">
+            {pendingRequests.map((request) => (
+              <div key={request.id} className="rounded-xl bg-[#202124] p-3">
+                <p className="truncate text-sm font-medium">{request.name}</p>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => onDeny?.(request.id)} className="flex-1 rounded-full px-2 py-1.5 text-xs text-white/60 hover:bg-white/10">Deny</button>
+                  <button onClick={() => onAdmit?.(request.id)} className="flex-1 rounded-full bg-accent px-2 py-1.5 text-xs font-semibold text-white hover:opacity-90"><Check size={13} className="mr-1 inline" />Admit</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {viewerIsHost && othersActive.length > 0 && (
-        <div className="flex gap-2 px-5 pb-3">
-          <button
-            onClick={onMuteAll}
-            disabled={!anyoneUnmuted}
-            className="flex-1 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40"
-          >
-            Mute all
-          </button>
-          <button
-            onClick={onCameraOffAll}
-            disabled={!anyoneCameraOn}
-            className="flex-1 rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40"
-          >
-            Turn off all cameras
-          </button>
+        <div className="space-y-2 px-5 pb-3">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={onMuteAll} disabled={!anyoneUnmuted} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Mute all</button>
+            <button onClick={onUnmuteAll} disabled={!othersActive.some((p) => p.isMuted)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Unmute all</button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={onCameraOffAll} disabled={!anyoneCameraOn} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Turn off cameras</button>
+            <button onClick={onCameraOnAll} disabled={!othersActive.some((p) => p.isCameraOff)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Turn on cameras</button>
+          </div>
         </div>
       )}
 
@@ -108,26 +132,22 @@ export function ParticipantList({
               {p.isCameraOff ? <VideoOff size={17} className="text-white/55" /> : <Video size={17} className="text-white/75" />}
               {viewerIsHost && !p.isHost && (
                 <div className="hidden items-center gap-1 group-hover:flex">
-                  {!p.isMuted && (
-                    <button
-                      onClick={() => onMute?.(p.userId)}
-                      aria-label={`Mute ${p.name}`}
-                      title="Mute"
-                      className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
-                    >
-                      <MicOff size={14} />
-                    </button>
-                  )}
-                  {!p.isCameraOff && (
-                    <button
-                      onClick={() => onCameraOff?.(p.userId)}
-                      aria-label={`Turn off ${p.name}'s camera`}
-                      title="Turn off camera"
-                      className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
-                    >
-                      <VideoOff size={14} />
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onMute?.(p.userId)}
+                    aria-label={p.isMuted ? `Unmute ${p.name}` : `Mute ${p.name}`}
+                    title={p.isMuted ? "Unmute" : "Mute"}
+                    className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
+                  >
+                    {p.isMuted ? <Mic size={14} /> : <MicOff size={14} />}
+                  </button>
+                  <button
+                    onClick={() => onCameraOff?.(p.userId)}
+                    aria-label={p.isCameraOff ? `Turn on ${p.name}'s camera` : `Turn off ${p.name}'s camera`}
+                    title={p.isCameraOff ? "Turn on camera" : "Turn off camera"}
+                    className="rounded-full p-2 text-white/60 hover:bg-white/10 hover:text-white"
+                  >
+                    {p.isCameraOff ? <Video size={14} /> : <VideoOff size={14} />}
+                  </button>
                   <button
                     onClick={() => onRemove?.(p.userId)}
                     aria-label={`Remove ${p.name}`}

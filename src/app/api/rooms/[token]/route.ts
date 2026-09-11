@@ -36,22 +36,20 @@ export async function GET(
 
   const { token } = await params;
 
+  // Fetch only the meeting fields needed by the room UI. The roster is
+  // queried separately with `leftAt: null`, so old attendance rows don't
+  // make every room refresh slower as a meeting accumulates history.
   const meeting = await prisma.meeting.findUnique({
     where: { token },
-    include: {
-      participants: {
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-        },
-        orderBy: {
-          joinedAt: "asc",
-        },
-      },
+    select: {
+      id: true,
+      token: true,
+      createdAt: true,
+      scheduledAt: true,
+      endAt: true,
+      hostId: true,
+      locked: true,
+      passcode: true,
     },
   });
 
@@ -62,12 +60,12 @@ export async function GET(
     );
   }
 
-  // Get the exact participant type returned by Prisma
-  type MeetingParticipant = (typeof meeting.participants)[number];
-
-  const callerIsParticipant = meeting.participants.some(
-    (p: MeetingParticipant) => p.userId === auth.sub,
-  );
+  // Access check is a narrow indexed lookup rather than loading the entire
+  // participant history into memory just to find the caller.
+  const callerIsParticipant = await prisma.participants.findUnique({
+    where: { meetingId_userId: { meetingId: meeting.id, userId: auth.sub } },
+    select: { id: true },
+  });
 
   if (!callerIsParticipant) {
     return NextResponse.json(
@@ -76,28 +74,43 @@ export async function GET(
     );
   }
 
+  // Only active participants are rendered in the live room. Historical
+  // attendance stays in the database for reporting but no longer bloats
+  // every 8–15 second roster refresh.
+  const participants = await prisma.participants.findMany({
+    where: { meetingId: meeting.id, leftAt: null },
+    select: {
+      userId: true,
+      isHost: true,
+      isMuted: true,
+      isCameraOff: true,
+      joinedAt: true,
+      leftAt: true,
+      user: { select: { name: true, email: true } },
+    },
+    orderBy: { joinedAt: "asc" },
+  });
+
   return NextResponse.json({
     meeting: {
       id: meeting.id,
       token: meeting.token,
       createdAt: meeting.createdAt,
+      scheduledAt: meeting.scheduledAt,
       endAt: meeting.endAt,
       hostId: meeting.hostId,
       locked: meeting.locked,
       passcodeSet: meeting.passcode !== null,
     },
-
-    participants: meeting.participants.map(
-      (p: MeetingParticipant) => ({
-        userId: p.userId,
-        name: p.user.name,
-        email: p.user.email,
-        isHost: p.isHost,
-        isMuted: p.isMuted,
-        isCameraOff: p.isCameraOff,
-        joinedAt: p.joinedAt,
-        leftAt: p.leftAt,
-      }),
-    ),
+    participants: participants.map((p) => ({
+      userId: p.userId,
+      name: p.user.name,
+      email: p.user.email,
+      isHost: p.isHost,
+      isMuted: p.isMuted,
+      isCameraOff: p.isCameraOff,
+      joinedAt: p.joinedAt,
+      leftAt: p.leftAt,
+    })),
   });
 }

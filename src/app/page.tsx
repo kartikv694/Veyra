@@ -56,7 +56,7 @@ export default function LandingPage() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-[#0F1115] text-white">
-      <div className="absolute inset-0 opacity-40">
+      <div className="pointer-events-none absolute inset-0 opacity-40">
         <SignalMotif />
       </div>
 
