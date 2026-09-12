@@ -46,6 +46,18 @@ export interface RemotePeer {
    *  camera — kept apart so the UI can render two tiles like Meet does,
    *  instead of the screen share replacing their camera feed. */
   screenStream: MediaStream | null;
+  /** The MediaStreamTrack.id of whichever track we've identified as
+   *  their camera. Tracked separately from the MediaStream wrapper's own
+   *  .id, which is NOT reliably stable across renegotiation — Chrome can
+   *  (and did, causing the black-tile bug) re-wrap the same underlying
+   *  camera track in a brand-new MediaStream object when a connection
+   *  renegotiates for an unrelated reason (e.g. someone starting a
+   *  screen share, which renegotiates every peer connection to add that
+   *  new track). Comparing stream .id treated that re-wrap as if it were
+   *  a second, different stream — mis-filing the camera's own refire as
+   *  a "screen share", which corrupted both slots. Track identity is
+   *  what's actually stable here. */
+  cameraTrackId: string | null;
   micOn: boolean;
   cameraOn: boolean;
   handRaised: boolean;
@@ -228,6 +240,8 @@ export function useMeetingRoom(
 
       pc.ontrack = (event) => {
         const incomingStream = event.streams[0] ?? null;
+        const incomingTrackId = event.track.id;
+        const isVideo = event.track.kind === "video";
         setPeers((prev) => {
           const existing =
             prev[socketId] ??
@@ -237,18 +251,31 @@ export function useMeetingRoom(
               name,
               stream: null,
               screenStream: null,
+              cameraTrackId: null,
               micOn: true,
               cameraOn: true,
               handRaised: false,
             } satisfies RemotePeer);
 
-          // The first stream we ever see for a peer is their camera
-          // (added when the connection was first created). A screen
-          // share is always a distinct MediaStream added later via a
-          // separate sender — so any later stream with a different id is
-          // the screen share, not a replacement for the camera tile.
-          if (!existing.stream || existing.stream.id === incomingStream?.id) {
+          // Audio has no screen-share equivalent here (getDisplayMedia is
+          // requested video-only — see startScreenShare) — any audio
+          // track always belongs to the camera stream, no identification
+          // needed.
+          if (!isVideo) {
             return { ...prev, [socketId]: { ...existing, stream: incomingStream } };
+          }
+
+          // The first VIDEO track we ever see for a peer is their camera
+          // (added when the connection was first created) — remember its
+          // track id specifically, not the MediaStream wrapper's id. Any
+          // later ontrack firing for that SAME track id just means the
+          // browser re-wrapped it in a new MediaStream object during
+          // renegotiation (which starting/stopping a screen share
+          // triggers for every peer connection) — update `stream` to the
+          // fresh wrapper, but it's still the camera, not a new share.
+          // Only a genuinely different video track id is the screen share.
+          if (!existing.cameraTrackId || incomingTrackId === existing.cameraTrackId) {
+            return { ...prev, [socketId]: { ...existing, stream: incomingStream, cameraTrackId: incomingTrackId } };
           }
           return { ...prev, [socketId]: { ...existing, screenStream: incomingStream } };
         });
@@ -263,7 +290,7 @@ export function useMeetingRoom(
       pcsRef.current[socketId] = pc;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false },
       }));
       return pc;
     },
@@ -299,10 +326,11 @@ export function useMeetingRoom(
     });
     socket.on("connect_error", (error) => {
       setConnected(false);
+      const socketError = error as Error & { description?: string };
       console.error("[Veyra] Socket connection failed", {
         url: socketUrl ?? window.location.origin,
-        message: error.message,
-        description: error.description,
+        message: socketError.message,
+        description: socketError.description,
       });
     });
     socket.on("disconnect", (reason) => {
@@ -331,7 +359,7 @@ export function useMeetingRoom(
       // wait for their "webrtc:offer" and answer it below.
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, micOn: true, cameraOn: true, handRaised: false },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false },
       }));
       callbacksRef.current.onPeerJoined?.({ socketId, userId, name });
     });
@@ -468,12 +496,16 @@ export function useMeetingRoom(
     });
 
     socket.on("participant:force-unmuted", ({ userId: targetUserId }: { userId: number }) => {
-      setPeers((prev) => {
-        const entry = Object.entries(prev).find(([, p]) => p.userId === targetUserId);
-        if (!entry) return prev;
-        const [socketId, peer] = entry;
-        return { ...prev, [socketId]: { ...peer, micOn: true } };
-      });
+      // Deliberately does NOT set micOn: true here. Releasing the lock
+      // isn't the same as the mic actually being on — the participant
+      // still has to click their own mic button (see onForceUnmuted in
+      // the room page, which only clears the lock, not the track). If
+      // this set micOn: true optimistically, everyone else's view would
+      // show them as "on" — rendering their audio/video tile as live —
+      // while the actual track stays disabled, which is exactly what
+      // produced the black camera tile bug. The real on/off state only
+      // ever comes from their own peer:media-state broadcast, once they
+      // actually toggle it themselves.
       if (targetUserId === myUserIdRef.current) callbacksRef.current.onForceUnmuted?.();
     });
 
@@ -490,12 +522,14 @@ export function useMeetingRoom(
     });
 
     socket.on("participant:force-camera-on", ({ userId: targetUserId }: { userId: number }) => {
-      setPeers((prev) => {
-        const entry = Object.entries(prev).find(([, p]) => p.userId === targetUserId);
-        if (!entry) return prev;
-        const [socketId, peer] = entry;
-        return { ...prev, [socketId]: { ...peer, cameraOn: true } };
-      });
+      // Deliberately does NOT set cameraOn: true here — see the comment
+      // on participant:force-unmuted above, same reasoning exactly. This
+      // was the actual bug: setting cameraOn: true optimistically here
+      // made every viewer's tile for this person render the <video>
+      // element (cameraOn && stream both true) while their real track
+      // was still disabled — producing a black tile instead of the
+      // avatar, right after the host released a lock and before the
+      // participant had actually turned their camera back on.
       if (targetUserId === myUserIdRef.current) callbacksRef.current.onForceCameraOn?.();
     });
 
@@ -514,15 +548,10 @@ export function useMeetingRoom(
     });
 
     socket.on("meeting:unmute-all", ({ userIds }: { userIds: number[] }) => {
-      const targetSet = new Set(userIds);
-      setPeers((prev) => {
-        const next = { ...prev };
-        for (const [socketId, peer] of Object.entries(prev)) {
-          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, micOn: true };
-        }
-        return next;
-      });
-      if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) callbacksRef.current.onForceUnmuted?.();
+      // See the comment in participant:force-unmuted above — this
+      // deliberately never sets micOn on peers, only fires the callback
+      // for whichever of these is *me*.
+      if (myUserIdRef.current !== null && userIds.includes(myUserIdRef.current)) callbacksRef.current.onForceUnmuted?.();
     });
 
     socket.on("meeting:camera-off-all", ({ userIds }: { userIds: number[] }) => {
@@ -536,6 +565,14 @@ export function useMeetingRoom(
       });
       if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) {
         callbacksRef.current.onForceCameraOff?.();
+      }
+    });
+
+    socket.on("meeting:camera-on-all", ({ userIds }: { userIds: number[] }) => {
+      // See the comment in participant:force-camera-on above — this is
+      // the bulk version of the exact same fix.
+      if (myUserIdRef.current !== null && userIds.includes(myUserIdRef.current)) {
+        callbacksRef.current.onForceCameraOn?.();
       }
     });
 

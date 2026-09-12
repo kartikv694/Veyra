@@ -23,6 +23,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { buildRoomLink } from "@/lib/room-code";
+import { sendMeetingInviteEmail, sendHostInviteConfirmationEmail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -49,6 +51,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     return NextResponse.json({ error: "Only the host can invite people." }, { status: 403 });
   }
 
+  const host = await prisma.users.findUnique({ where: { id: auth.sub }, select: { name: true, email: true } });
+  const hostName = host?.name ?? host?.email ?? "Someone";
+
   const emails = [...new Set(parsed.data.emails.map((e) => e.trim().toLowerCase()))];
   await Promise.all(
     emails.map((email) =>
@@ -60,7 +65,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     ),
   );
 
-  return NextResponse.json({ invited: emails });
+  // Best-effort — a failed email shouldn't undo the invite records
+  // themselves, since the person is still on the invite list and can
+  // still be told about it another way (the link copied/shared
+  // manually). Each send is independent, so one bad address doesn't
+  // block the rest. But a silent failure here is indistinguishable from
+  // "nobody got anything" — so every rejection gets logged loudly
+  // server-side, and the response tells the caller which addresses (if
+  // any) didn't actually go out, instead of unconditionally claiming
+  // success.
+  const meetingUrl = buildRoomLink(meeting.token);
+  const results = await Promise.allSettled(
+    emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, meetingUrl, scheduledAt: meeting.scheduledAt })),
+  );
+  const failedEmails: string[] = [];
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      failedEmails.push(emails[i]);
+      console.error(`Failed to send invite email to ${emails[i]}:`, result.reason);
+    }
+  });
+
+  if (host?.email) {
+    const hostResult = await Promise.allSettled([
+      sendHostInviteConfirmationEmail({ to: host.email, invitedEmails: emails, meetingUrl, scheduledAt: meeting.scheduledAt }),
+    ]);
+    if (hostResult[0].status === "rejected") {
+      console.error(`Failed to send host confirmation email to ${host.email}:`, hostResult[0].reason);
+    }
+  }
+
+  return NextResponse.json({
+    invited: emails,
+    emailsFailed: failedEmails.length > 0 ? failedEmails : undefined,
+  });
 }
 
 

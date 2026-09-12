@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createUniqueRoomToken, buildRoomLink } from "@/lib/room-code";
+import { sendMeetingInviteEmail, sendHostInviteConfirmationEmail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,15 @@ const scheduleSchema = z.object({
   emails: z.array(z.string().email()).max(50).default([]),
 });
 
-/** Creates a future meeting and optionally adds email addresses to its invite list. */
+/** Creates a future meeting, optionally adds email addresses to its invite
+ *  list, and emails everyone involved — the host gets a confirmation, and
+ *  each invited address gets "X invited you to a Veyra meeting scheduled
+ *  for <date>" (see sendMeetingInviteEmail's scheduledAt argument, which
+ *  is what switches its wording from "invited you now" to "scheduled
+ *  for"). Both emails are best-effort — a failed send doesn't undo the
+ *  meeting/invite records themselves, but is logged loudly server-side
+ *  and reported back in the response so the caller isn't left thinking
+ *  something sent when it didn't. */
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req);
   if (!auth) return unauthorized();
@@ -51,6 +60,30 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const host = await prisma.users.findUnique({ where: { id: auth.sub }, select: { name: true, email: true } });
+  const hostName = host?.name ?? host?.email ?? "Someone";
+  const meetingUrl = buildRoomLink(meeting.token);
+
+  const failedEmails: string[] = [];
+  if (emails.length) {
+    const results = await Promise.allSettled(
+      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, meetingUrl, scheduledAt })),
+    );
+    results.forEach((result, i) => {
+      if (result.status === "rejected") {
+        failedEmails.push(emails[i]);
+        console.error(`Failed to send scheduled-meeting email to ${emails[i]}:`, result.reason);
+      }
+    });
+  }
+  if (host?.email) {
+    try {
+      await sendHostInviteConfirmationEmail({ to: host.email, invitedEmails: emails, meetingUrl, scheduledAt });
+    } catch (err) {
+      console.error(`Failed to send host scheduling confirmation to ${host.email}:`, err);
+    }
+  }
+
   return NextResponse.json({
     meeting: {
       id: meeting.id,
@@ -61,5 +94,6 @@ export async function POST(req: NextRequest) {
       scheduledAt: meeting.scheduledAt,
       invited: emails,
     },
+    emailsFailed: failedEmails.length > 0 ? failedEmails : undefined,
   }, { status: 201 });
 }

@@ -314,8 +314,27 @@ export default function RoomPage() {
   const [me, setMe] = useState<SessionUser | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [micOn, setMicOn] = useState(true);
-  const [cameraOn, setCameraOn] = useState(true);
+  // Remembers the last mic/camera toggle across a refresh — without this,
+  // reloading the page always re-acquires the camera/mic as "on" by
+  // default (that's just what getUserMedia gives you), ignoring that the
+  // person had deliberately turned them off a moment ago. This is a
+  // per-browser preference, not meeting state, so localStorage (not the
+  // server) is the right place for it.
+  const [micOn, setMicOn] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("veyra:mic-pref") !== "off";
+  });
+  const [cameraOn, setCameraOn] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("veyra:camera-pref") !== "off";
+  });
+  // True while the host has force-muted/force-cammed-off this participant
+  // and hasn't released it yet — while true, this person's own mic/camera
+  // buttons are disabled entirely, not just toggled off, so they can't
+  // just click themselves back on. Only clears when the host explicitly
+  // releases it (see onForceUnmuted/onForceCameraOn below).
+  const [micLocked, setMicLocked] = useState(false);
+  const [cameraLocked, setCameraLocked] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [message, setMessage] = useState("");
   const [leaving, setLeaving] = useState(false);
@@ -378,22 +397,28 @@ export default function RoomPage() {
       onForceMuted: () => {
         streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
         setMicOn(false);
-        toast.info("The host muted you.");
+        setMicLocked(true);
+        toast.info("The host muted you. You can't unmute yourself until the host allows it.");
       },
       onForceUnmuted: () => {
-        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = true));
-        setMicOn(true);
-        toast.info("The host allowed your microphone.");
+        // Only unlocks the button — does NOT turn the mic on for them.
+        // Track stays disabled and micOn stays false until the
+        // participant clicks their own mic button, same as if they'd
+        // muted themselves and were choosing when to unmute.
+        setMicLocked(false);
+        toast.info("The host allowed your microphone — click the mic button to turn it on.");
       },
       onForceCameraOff: () => {
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
         setCameraOn(false);
-        toast.info("The host turned off your camera.");
+        setCameraLocked(true);
+        toast.info("The host turned off your camera. You can't turn it back on until the host allows it.");
       },
       onForceCameraOn: () => {
-        streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = true));
-        setCameraOn(true);
-        toast.info("The host allowed your camera.");
+        // Only unlocks the button — does NOT turn the camera on for
+        // them. Same reasoning as onForceUnmuted above.
+        setCameraLocked(false);
+        toast.info("The host allowed your camera — click the camera button to turn it on.");
       },
       onJoinRequest: (request) => {
         setPendingRequests((prev) =>
@@ -558,6 +583,13 @@ export default function RoomPage() {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
+        // getUserMedia always hands back enabled tracks — apply whatever
+        // was remembered from before the refresh, using the state
+        // variables above (already initialized from localStorage) rather
+        // than re-reading it, so this stays in sync with what the rest
+        // of the component believes micOn/cameraOn to be.
+        stream.getAudioTracks().forEach((track) => (track.enabled = micOn));
+        stream.getVideoTracks().forEach((track) => (track.enabled = cameraOn));
         streamRef.current = stream;
         setLocalStream(stream);
       } catch (err) {
@@ -647,20 +679,30 @@ export default function RoomPage() {
   }, [joined, token]);
 
   const toggleMic = () => {
+    if (micLocked) {
+      toast.info("The host muted you — only the host can turn your mic back on.");
+      return;
+    }
     const stream = streamRef.current;
     if (!stream) return;
     const next = !micOn;
     stream.getAudioTracks().forEach((track) => (track.enabled = next));
     setMicOn(next);
+    window.localStorage.setItem("veyra:mic-pref", next ? "on" : "off");
     broadcastMediaState(next, cameraOn);
   };
 
   const toggleCamera = () => {
+    if (cameraLocked) {
+      toast.info("The host turned off your camera — only the host can turn it back on.");
+      return;
+    }
     const stream = streamRef.current;
     if (!stream) return;
     const next = !cameraOn;
     stream.getVideoTracks().forEach((track) => (track.enabled = next));
     setCameraOn(next);
+    window.localStorage.setItem("veyra:camera-pref", next ? "on" : "off");
     broadcastMediaState(micOn, next);
   };
 
@@ -824,9 +866,18 @@ export default function RoomPage() {
 
   const peerCount = peers.length;
   useEffect(() => {
+    // Deliberately includes micOn/cameraOn in the dependency array (no
+    // eslint-disable here) — leaving them out was a real bug: this
+    // effect could fire (e.g. right as a new peer connects, which
+    // happens a lot during the renegotiation activity screen-sharing
+    // triggers) using a stale closure over an older cameraOn/micOn
+    // value, re-broadcasting "camera on" moments after a correct
+    // "camera off" had already gone out. Receivers would then show the
+    // video element (since their copy of cameraOn said true again)
+    // while the actual track stayed disabled — producing a black tile
+    // instead of the avatar fallback.
     if (connected) broadcastMediaState(micOn, cameraOn);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peerCount, connected]);
+  }, [peerCount, connected, micOn, cameraOn, broadcastMediaState]);
 
   const stopScreenShare = useCallback(() => {
     const track = screenStreamRef.current?.getVideoTracks()[0];
@@ -1021,7 +1072,13 @@ export default function RoomPage() {
         toast.error(data.error ?? "Couldn't send that invite.");
         return;
       }
-      toast.success(emails.length === 1 ? "Invited." : `Invited ${emails.length} people.`);
+      if (data.emailsFailed?.length) {
+        toast.warning(
+          `Added to the invite list, but the email didn't send for: ${data.emailsFailed.join(", ")}. Check the backend terminal for the SMTP error, or share the link with them directly.`,
+        );
+      } else {
+        toast.success(emails.length === 1 ? "Invited." : `Invited ${emails.length} people.`);
+      }
       setInviteInput("");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -1500,6 +1557,8 @@ export default function RoomPage() {
       <ControlBar
         micOn={micOn}
         cameraOn={cameraOn}
+        micLocked={micLocked}
+        cameraLocked={cameraLocked}
         participantsOpen={panel === "people"}
         onToggleMic={toggleMic}
         onToggleCamera={toggleCamera}

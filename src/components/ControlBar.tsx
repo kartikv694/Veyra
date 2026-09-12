@@ -31,6 +31,10 @@ const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "👏", "🎉"];
 interface ControlBarProps {
   micOn: boolean;
   cameraOn: boolean;
+  /** True while the host has force-muted/force-cammed-off this person and
+   *  hasn't released it — disables the corresponding button entirely. */
+  micLocked?: boolean;
+  cameraLocked?: boolean;
   participantsOpen: boolean;
   onToggleMic: () => void;
   onToggleCamera: () => void;
@@ -58,20 +62,23 @@ function ControlButton({
   label,
   active = false,
   danger = false,
+  disabled = false,
   children,
 }: {
   onClick: () => void;
   label: string;
   active?: boolean;
   danger?: boolean;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
-      className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/30 ${
+      className={`flex h-12 w-12 items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-40 ${
         danger
           ? "bg-[#ea4335] text-white hover:bg-[#d93025]"
           : active
@@ -87,6 +94,8 @@ function ControlButton({
 export function ControlBar({
   micOn,
   cameraOn,
+  micLocked = false,
+  cameraLocked = false,
   participantsOpen,
   onToggleMic,
   onToggleCamera,
@@ -119,7 +128,12 @@ export function ControlBar({
             <AudioLines size={19} className="animate-pulse" />
           </div>
 
-          <ControlButton onClick={onToggleMic} label={micOn ? "Turn off microphone" : "Turn on microphone"} active={micOn}>
+          <ControlButton
+            onClick={onToggleMic}
+            label={micLocked ? "Muted by host" : micOn ? "Turn off microphone" : "Turn on microphone"}
+            active={micOn}
+            disabled={micLocked}
+          >
             {micOn ? <Mic size={21} /> : <MicOff size={21} />}
           </ControlButton>
 
@@ -131,7 +145,12 @@ export function ControlBar({
             <ChevronUp size={16} />
           </button>
 
-          <ControlButton onClick={onToggleCamera} label={cameraOn ? "Turn off camera" : "Turn on camera"} active={cameraOn}>
+          <ControlButton
+            onClick={onToggleCamera}
+            label={cameraLocked ? "Camera turned off by host" : cameraOn ? "Turn off camera" : "Turn on camera"}
+            active={cameraOn}
+            disabled={cameraLocked}
+          >
             {cameraOn ? <Video size={21} /> : <VideoOff size={21} />}
           </ControlButton>
 

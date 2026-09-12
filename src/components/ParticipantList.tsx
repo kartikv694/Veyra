@@ -11,6 +11,69 @@ export interface ParticipantRow {
   leftAt: string | null;
 }
 
+/** A standard sliding toggle switch — same visual pattern as a theme
+ *  toggle, reused here for bulk mic/camera actions. It's an action
+ *  trigger dressed as a state switch: since any individual participant
+ *  can unmute/re-enable their own camera independently at any time,
+ *  there's no single true "on/off" state to track for the whole group —
+ *  the switch's position just reflects whether *everyone* currently
+ *  happens to be muted/off, and flipping it fires the bulk mute-all or
+ *  release-all action accordingly. */
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      onClick={onChange}
+      role="switch"
+      aria-checked={checked}
+      className="flex w-full items-center justify-between gap-3 rounded-xl px-1 py-2 text-left transition hover:bg-white/5"
+    >
+      <span className="text-sm text-white/85">{label}</span>
+      {/* Inline styles here on purpose, not Tailwind classes — this is
+          the actual visible switch, so it shouldn't depend on Tailwind's
+          class generation picking up a template-literal class name
+          correctly. Fixed pixel sizes and explicit hex colors, so it
+          renders identically regardless of any build/CSS-pipeline
+          quirk. */}
+      <span
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          flexShrink: 0,
+          width: 44,
+          height: 24,
+          borderRadius: 9999,
+          border: "1px solid rgba(255,255,255,0.35)",
+          background: checked ? "#6C77FF" : "#4a4d50",
+          transition: "background-color 150ms",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: checked ? 22 : 2,
+            width: 18,
+            height: 18,
+            borderRadius: 9999,
+            background: "#ffffff",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.5)",
+            transition: "left 150ms",
+          }}
+        />
+      </span>
+    </button>
+  );
+}
+
 interface ParticipantListProps {
   open: boolean;
   participants: ParticipantRow[];
@@ -97,15 +160,17 @@ export function ParticipantList({
       )}
 
       {viewerIsHost && othersActive.length > 0 && (
-        <div className="space-y-2 px-5 pb-3">
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={onMuteAll} disabled={!anyoneUnmuted} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Mute all</button>
-            <button onClick={onUnmuteAll} disabled={!othersActive.some((p) => p.isMuted)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Unmute all</button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={onCameraOffAll} disabled={!anyoneCameraOn} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Turn off cameras</button>
-            <button onClick={onCameraOnAll} disabled={!othersActive.some((p) => p.isCameraOff)} className="rounded-full border border-white/15 px-3 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 disabled:opacity-40">Turn on cameras</button>
-          </div>
+        <div className="space-y-1 px-5 pb-3">
+          <ToggleSwitch
+            checked={!anyoneUnmuted}
+            onChange={() => (anyoneUnmuted ? onMuteAll : onUnmuteAll)?.()}
+            label="All participants mic mute"
+          />
+          <ToggleSwitch
+            checked={!anyoneCameraOn}
+            onChange={() => (anyoneCameraOn ? onCameraOffAll : onCameraOnAll)?.()}
+            label="All participants camera off"
+          />
         </div>
       )}
 
