@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createUniqueRoomToken, buildRoomLink } from "@/lib/room-code";
-import { sendMeetingInviteEmail, sendHostInviteConfirmationEmail } from "@/lib/mailer";
+import { sendMeetingInviteEmail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -13,7 +13,7 @@ const scheduleSchema = z.object({
 });
 
 /** Creates a future meeting, optionally adds email addresses to its invite
- *  list, and emails everyone involved — the host gets a confirmation, and
+ *  list, and emails each invited address — "X invited you to a Veyra
  *  each invited address gets "X invited you to a Veyra meeting scheduled
  *  for <date>" (see sendMeetingInviteEmail's scheduledAt argument, which
  *  is what switches its wording from "invited you now" to "scheduled
@@ -75,13 +75,6 @@ export async function POST(req: NextRequest) {
         console.error(`Failed to send scheduled-meeting email to ${emails[i]}:`, result.reason);
       }
     });
-  }
-  if (host?.email) {
-    try {
-      await sendHostInviteConfirmationEmail({ to: host.email, invitedEmails: emails, meetingUrl, scheduledAt });
-    } catch (err) {
-      console.error(`Failed to send host scheduling confirmation to ${host.email}:`, err);
-    }
   }
 
   return NextResponse.json({

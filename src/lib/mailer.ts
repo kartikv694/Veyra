@@ -102,35 +102,6 @@ export async function sendMeetingInviteEmail(args: {
   await sendMail({ to: args.to, subject, text, html });
 }
 
-export async function sendHostInviteConfirmationEmail(args: {
-  to: string;
-  invitedEmails: string[];
-  meetingUrl: string;
-  scheduledAt?: Date | null;
-}) {
-  const when = args.scheduledAt
-    ? args.scheduledAt.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" })
-    : null;
-  const subject = when
-    ? `Your Veyra meeting is scheduled for ${when}`
-    : `You invited ${args.invitedEmails.length} ${args.invitedEmails.length === 1 ? "person" : "people"} to your Veyra meeting`;
-  const list = args.invitedEmails.map((e) => escapeHtml(e)).join(", ");
-  const text = [
-    when ? `Your Veyra meeting is scheduled for ${when}.` : null,
-    args.invitedEmails.length ? `You invited: ${args.invitedEmails.join(", ")}` : null,
-    `Meeting link: ${args.meetingUrl}`,
-  ].filter(Boolean).join("\n\n");
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124">
-      <h2>${escapeHtml(subject)}</h2>
-      ${when ? `<p><strong>Scheduled for:</strong> ${escapeHtml(when)}</p>` : ""}
-      ${args.invitedEmails.length ? `<p>You invited: ${list}</p>` : ""}
-      <p><a href="${escapeHtml(args.meetingUrl)}">${escapeHtml(args.meetingUrl)}</a></p>
-    </div>`;
-
-  await sendMail({ to: args.to, subject, text, html });
-}
-
 export async function sendPasswordResetEmail(args: { to: string; code: string; validMinutes: number }) {
   const subject = "Your Veyra password reset code";
   const text = `Your Veyra password reset code is ${args.code}. It expires in ${args.validMinutes} minutes. If you didn't request this, you can safely ignore this email.`;

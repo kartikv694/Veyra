@@ -379,6 +379,28 @@ export default function RoomPage() {
     [router, token],
   );
 
+  // Fallback for "host ends the meeting": the socket push (meeting:ended)
+  // is the fast path, firing immediately. This is the guaranteed path —
+  // without it, a dropped or delayed socket event (which can happen
+  // whenever the signaling connection is unstable) leaves a participant
+  // stuck in an already-ended room with no way to find out, since
+  // nothing else here was actually checking Meeting.endAt despite the
+  // end route's own comment claiming this fallback existed.
+  useEffect(() => {
+    if (!joined) return;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.meeting?.endAt) exitMeeting("ended");
+      } catch {
+        // Transient network hiccup — the next tick retries.
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [joined, token, exitMeeting]);
+
   const {
     peers,
     connected,

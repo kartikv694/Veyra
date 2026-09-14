@@ -24,7 +24,7 @@ import { z } from "zod";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildRoomLink } from "@/lib/room-code";
-import { sendMeetingInviteEmail, sendHostInviteConfirmationEmail } from "@/lib/mailer";
+import { sendMeetingInviteEmail } from "@/lib/mailer";
 
 export const runtime = "nodejs";
 
@@ -85,15 +85,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       console.error(`Failed to send invite email to ${emails[i]}:`, result.reason);
     }
   });
-
-  if (host?.email) {
-    const hostResult = await Promise.allSettled([
-      sendHostInviteConfirmationEmail({ to: host.email, invitedEmails: emails, meetingUrl, scheduledAt: meeting.scheduledAt }),
-    ]);
-    if (hostResult[0].status === "rejected") {
-      console.error(`Failed to send host confirmation email to ${host.email}:`, hostResult[0].reason);
-    }
-  }
 
   return NextResponse.json({
     invited: emails,

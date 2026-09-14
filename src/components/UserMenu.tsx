@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { User as UserIcon, LogOut } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -47,7 +48,13 @@ export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
   const handleLogout = () => {
     clearSession();
     toast.info("Signed out.");
+    // router.push("/") alone is a no-op if we're already ON "/" — Next.js
+    // won't refetch/re-render just because the destination matches the
+    // current route, so the page kept showing the now-stale "logged in"
+    // UI even though the token really had been cleared. refresh() forces
+    // it to actually re-render around the new (logged-out) state.
     router.push("/");
+    router.refresh();
   };
 
   return (
@@ -94,7 +101,7 @@ export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
         </div>
       )}
 
-      {showProfile && (
+      {showProfile && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
           onClick={() => setShowProfile(false)}
@@ -147,7 +154,8 @@ export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
               Close
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
