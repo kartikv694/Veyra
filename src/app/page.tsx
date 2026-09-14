@@ -21,7 +21,8 @@
  * correctly sends someone to /login instead of a dashboard that then fails.
  */
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+
+import { useRouter } from 'next/router'
 import { Plus, LogIn } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Navbar } from "@/components/Navbar";
