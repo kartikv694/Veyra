@@ -22,7 +22,7 @@
  */
 import { useState } from "react";
 
-import { useRouter } from 'next/router'
+import { useRouter } from 'next/navigation'
 import { Plus, LogIn } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Navbar } from "@/components/Navbar";
