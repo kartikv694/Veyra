@@ -17,6 +17,7 @@
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { resolveHostAction } from "@/lib/host-action";
 import { prisma } from "@/lib/prisma";
+import { emitToMeeting } from "@/lib/socket-emitters";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -48,6 +49,8 @@ export async function POST(
     where: { id: resolved.target.id },
     data: { isCameraOff: cameraOff },
   });
+
+  emitToMeeting(token, cameraOff ? "participant:force-camera-off" : "participant:force-camera-on", { userId: targetUserId });
 
   return NextResponse.json({ userId: targetUserId, cameraOff });
 }

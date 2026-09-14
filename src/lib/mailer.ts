@@ -102,10 +102,6 @@ export async function sendMeetingInviteEmail(args: {
   await sendMail({ to: args.to, subject, text, html });
 }
 
-export function defaultInviteRecipient() {
-  return env("SMTP_USER_EMAIL");
-}
-
 export async function sendHostInviteConfirmationEmail(args: {
   to: string;
   invitedEmails: string[];
