@@ -29,13 +29,29 @@ function getConfig(): { baseUrl: string; secret: string } {
 }
 
 async function postInternal(path: string, body: Record<string, unknown>): Promise<boolean> {
-  const { baseUrl, secret } = getConfig();
   try {
+    // Deliberately inside the try block, not before it — getConfig()
+    // throws if the env vars aren't set, and since every call site
+    // fires this off without awaiting it (on purpose — a real-time push
+    // is best-effort, the DB mutation it follows has already succeeded
+    // and shouldn't wait on this), an unhandled throw here becomes an
+    // unhandled promise rejection. In a serverless environment (Vercel),
+    // that can crash the function outright — which is what was actually
+    // producing 503s specifically on every route that calls this, not a
+    // slow backend.
+    const { baseUrl, secret } = getConfig();
+    // 5s timeout — this is a best-effort real-time push, not something
+    // worth waiting a long time for. Without this, a slow or
+    // cold-starting backend could leave this fetch hanging far longer
+    // than necessary before Node/Vercel eventually gives up on it.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-internal-secret": secret },
       body: JSON.stringify(body),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
     if (!res.ok) {
       console.error(`socket-emitters: ${path} responded ${res.status}`);
       return false;

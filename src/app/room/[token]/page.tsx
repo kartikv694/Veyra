@@ -402,12 +402,11 @@ export default function RoomPage() {
         toast.info("The host muted you. You can't unmute yourself until the host allows it.");
       },
       onForceUnmuted: () => {
-        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = true));
-        setMicOn(true);
+        // Only unlocks the button — does NOT turn the mic on for them.
+        // Track stays disabled and micOn stays false until the
+        // participant clicks their own mic button themselves.
         setMicLocked(false);
-        window.localStorage.setItem("veyra:mic-pref", "on");
-        broadcastMediaState(true, cameraOn);
-        toast.info("The host allowed your microphone.");
+        toast.info("The host allowed your microphone — click the mic button to turn it on.");
       },
       onForceCameraOff: () => {
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
@@ -416,12 +415,10 @@ export default function RoomPage() {
         toast.info("The host turned off your camera. You can't turn it back on until the host allows it.");
       },
       onForceCameraOn: () => {
-        streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = true));
-        setCameraOn(true);
+        // Only unlocks the button — does NOT turn the camera on for
+        // them. Same reasoning as onForceUnmuted above.
         setCameraLocked(false);
-        window.localStorage.setItem("veyra:camera-pref", "on");
-        broadcastMediaState(micOn, true);
-        toast.info("The host allowed your camera.");
+        toast.info("The host allowed your camera — click the camera button to turn it on.");
       },
       onJoinRequest: (request) => {
         setPendingRequests((prev) =>

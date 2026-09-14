@@ -592,11 +592,18 @@ export function useMeetingRoom(
     });
 
     socket.on("meeting:unmute-all", ({ userIds }: { userIds: number[] }) => {
+      // See the comment on participant:force-unmuted above — this is the
+      // bulk version of the exact same fix. isMuted (DB-facing display
+      // state, e.g. for the People panel) is fine to update here since
+      // that's just "did the host release the lock", not "is their mic
+      // actually on" — but cameraOn/micOn (which gate whether a tile
+      // renders live video) must not be touched until they actually
+      // toggle it themselves.
       const targetSet = new Set(userIds);
       setPeers((prev) => {
         const next = { ...prev };
         for (const [socketId, peer] of Object.entries(prev)) {
-          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, micOn: true, isMuted: false };
+          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, isMuted: false };
         }
         return next;
       });
@@ -618,11 +625,13 @@ export function useMeetingRoom(
     });
 
     socket.on("meeting:camera-on-all", ({ userIds }: { userIds: number[] }) => {
+      // See the comment on participant:force-camera-on and
+      // meeting:unmute-all above — same fix, same reasoning.
       const targetSet = new Set(userIds);
       setPeers((prev) => {
         const next = { ...prev };
         for (const [socketId, peer] of Object.entries(prev)) {
-          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, cameraOn: true, isCameraOff: false };
+          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, isCameraOff: false };
         }
         return next;
       });
