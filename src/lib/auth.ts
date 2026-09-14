@@ -69,7 +69,7 @@ export function signAuthToken(payload: AuthTokenPayload): string {
  */
 export function verifyAuthToken(token: string): AuthTokenPayload | null {
   try {
-    return jwt.verify(token, getJwtSecret()) as AuthTokenPayload;
+    return jwt.verify(token, getJwtSecret()) as unknown as AuthTokenPayload;
   } catch {
     return null;
   }
