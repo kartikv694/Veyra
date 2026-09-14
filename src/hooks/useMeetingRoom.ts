@@ -313,7 +313,7 @@ export function useMeetingRoom(
       peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost, isMuted, isCameraOff },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(meta.isHost), isMuted: Boolean(meta.isMuted), isCameraOff: Boolean(meta.isCameraOff) },
       }));
       return pc;
     },
@@ -394,7 +394,7 @@ export function useMeetingRoom(
       peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost, isMuted, isCameraOff },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(isHost), isMuted: Boolean(isMuted), isCameraOff: Boolean(isCameraOff) },
       }));
       callbacksRef.current.onPeerJoined?.({ socketId, userId, name, isHost, isMuted, isCameraOff });
     });
