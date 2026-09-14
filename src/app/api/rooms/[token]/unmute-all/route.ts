@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   });
 
   const userIds = targets.map((t) => t.userId);
-  emitToMeeting(token, "meeting:unmute-all", { userIds });
+  await emitToMeeting(token, "meeting:unmute-all", { userIds });
 
   return NextResponse.json({ unmuted: userIds });
 }

@@ -28,7 +28,7 @@ function getConfig(): { baseUrl: string; secret: string } {
   return { baseUrl, secret };
 }
 
-async function postInternal(path: string, body: Record<string, unknown>): Promise<void> {
+async function postInternal(path: string, body: Record<string, unknown>): Promise<boolean> {
   const { baseUrl, secret } = getConfig();
   try {
     const res = await fetch(`${baseUrl}${path}`, {
@@ -38,31 +38,34 @@ async function postInternal(path: string, body: Record<string, unknown>): Promis
     });
     if (!res.ok) {
       console.error(`socket-emitters: ${path} responded ${res.status}`);
+      return false;
     }
+    return true;
   } catch (err) {
     // Best-effort: a REST mutation (mute/remove/end) has already succeeded
     // in the database by the time this runs. If the socket server is
     // unreachable, the affected client just won't get the instant push —
     // it'll pick the change up on its next poll instead of losing it.
     console.error("socket-emitters: failed to reach socket server", err);
+    return false;
   }
 }
 
 /** Pushes an event to every socket in a meeting. */
-export function emitToMeeting(roomToken: string, event: string, payload?: unknown): void {
-  void postInternal("/internal/emit-room", { roomToken, event, payload });
+export async function emitToMeeting(roomToken: string, event: string, payload?: unknown): Promise<boolean> {
+  return postInternal("/internal/emit-room", { roomToken, event, payload });
 }
 
 /**
  * Pushes an event to one user's socket(s) within a meeting, optionally
  * disconnecting them right after (used when removing a participant).
  */
-export function emitToUser(
+export async function emitToUser(
   roomToken: string,
   userId: number,
   event: string,
   payload?: unknown,
   disconnect?: boolean,
-): void {
-  void postInternal("/internal/emit-user", { roomToken, userId, event, payload, disconnect });
+): Promise<boolean> {
+  return postInternal("/internal/emit-user", { roomToken, userId, event, payload, disconnect });
 }

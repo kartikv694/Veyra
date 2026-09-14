@@ -398,27 +398,34 @@ export default function RoomPage() {
         streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
         setMicOn(false);
         setMicLocked(true);
+        window.localStorage.setItem("veyra:mic-pref", "off");
         toast.info("The host muted you. You can't unmute yourself until the host allows it.");
       },
       onForceUnmuted: () => {
-        // Only unlocks the button — does NOT turn the mic on for them.
-        // Track stays disabled and micOn stays false until the
-        // participant clicks their own mic button, same as if they'd
-        // muted themselves and were choosing when to unmute.
+        // Host "Unmute all" explicitly enables the participant's local
+        // microphone. This makes the bulk control affect the real track,
+        // not only the database/People panel state.
+        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = true));
+        setMicOn(true);
         setMicLocked(false);
-        toast.info("The host allowed your microphone — click the mic button to turn it on.");
+        window.localStorage.setItem("veyra:mic-pref", "on");
+        toast.info("The host allowed your microphone.");
       },
       onForceCameraOff: () => {
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
         setCameraOn(false);
         setCameraLocked(true);
+        window.localStorage.setItem("veyra:camera-pref", "off");
         toast.info("The host turned off your camera. You can't turn it back on until the host allows it.");
       },
       onForceCameraOn: () => {
-        // Only unlocks the button — does NOT turn the camera on for
-        // them. Same reasoning as onForceUnmuted above.
+        // A host "Camera on" is an explicit release/enable action.
+        // Re-enable the local video track immediately.
+        streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = true));
+        setCameraOn(true);
         setCameraLocked(false);
-        toast.info("The host allowed your camera — click the camera button to turn it on.");
+        window.localStorage.setItem("veyra:camera-pref", "on");
+        toast.info("The host allowed your camera.");
       },
       onJoinRequest: (request) => {
         setPendingRequests((prev) =>
