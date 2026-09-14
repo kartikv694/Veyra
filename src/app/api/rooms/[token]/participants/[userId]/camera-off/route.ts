@@ -50,7 +50,8 @@ export async function POST(
     data: { isCameraOff: cameraOff },
   });
 
-  emitToMeeting(token, cameraOff ? "participant:force-camera-off" : "participant:force-camera-on", { userId: targetUserId });
+  const delivered = await emitToMeeting(token, cameraOff ? "participant:force-camera-off" : "participant:force-camera-on", { userId: targetUserId });
+  if (!delivered) return NextResponse.json({ error: "Meeting realtime server is unavailable. Please retry." }, { status: 503 });
 
   return NextResponse.json({ userId: targetUserId, cameraOff });
 }

@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
   // automatically and a returning regular participant stays regular.
   const participant = await prisma.participants.upsert({
     where: { meetingId_userId: { meetingId: meeting.id, userId: auth.sub } },
-    update: { leftAt: null },
+    update: { leftAt: null, joinedAt: new Date(), isHost: isHostThemself },
     create: {
       meetingId: meeting.id,
       userId: auth.sub,
@@ -183,6 +183,7 @@ export async function POST(req: NextRequest) {
       id: participant.id,
       isHost: participant.isHost,
       isMuted: participant.isMuted,
+      isCameraOff: participant.isCameraOff,
       joinedAt: participant.joinedAt,
     },
     participants: activeParticipants.map((p) => ({

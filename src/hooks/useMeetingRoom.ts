@@ -61,6 +61,9 @@ export interface RemotePeer {
   micOn: boolean;
   cameraOn: boolean;
   handRaised: boolean;
+  isHost?: boolean;
+  isMuted?: boolean;
+  isCameraOff?: boolean;
 }
 
 export interface MeetingRoomCallbacks {
@@ -83,7 +86,7 @@ export interface MeetingRoomCallbacks {
   /** Someone is asking to join — only ever fires for the host, since
    *  that's the only person the server pushes this to. */
   onJoinRequest?: (request: { requestId: number; userId: number; name: string }) => void;
-  onPeerJoined?: (peer: { socketId: string; userId: number; name: string }) => void;
+  onPeerJoined?: (peer: { socketId: string; userId: number; name: string; isHost?: boolean; isMuted?: boolean; isCameraOff?: boolean }) => void;
   onPeerLeft?: (peer: { socketId: string; userId: number }) => void;
 }
 
@@ -142,6 +145,8 @@ export function useMeetingRoom(
   // negotiation on our (answering) side specifically — which is what was
   // actually breaking video/screen-share for the receiving participant.
   const processingOfferRef = useRef<Record<string, boolean>>({});
+  const pendingIceRef = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const peerUsersRef = useRef<Record<string, number>>({});
   const localStreamRef = useRef<MediaStream | null>(localStream);
   // Ref so the socket effect (which intentionally only re-runs on
   // roomToken changing) always calls the latest callbacks, not stale ones
@@ -173,6 +178,10 @@ export function useMeetingRoom(
   const removePeer = useCallback((socketId: string) => {
     pcsRef.current[socketId]?.close();
     delete pcsRef.current[socketId];
+    delete pendingIceRef.current[socketId];
+    delete makingOfferRef.current[socketId];
+    delete processingOfferRef.current[socketId];
+    delete peerUsersRef.current[socketId];
     setPeers((prev) => {
       if (!(socketId in prev)) return prev;
       const next = { ...prev };
@@ -181,8 +190,21 @@ export function useMeetingRoom(
     });
   }, []);
 
+  const flushPendingIce = useCallback(async (socketId: string, pc: RTCPeerConnection) => {
+    const queued = pendingIceRef.current[socketId];
+    if (!queued?.length || !pc.remoteDescription) return;
+    delete pendingIceRef.current[socketId];
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        // Ignore candidates that became invalid after a renegotiation.
+      }
+    }
+  }, []);
+
   const createPeerConnection = useCallback(
-    (socketId: string, userId: number, name: string): RTCPeerConnection => {
+    (socketId: string, userId: number, name: string, meta: { isHost?: boolean; isMuted?: boolean; isCameraOff?: boolean } = {}): RTCPeerConnection => {
       const existing = pcsRef.current[socketId];
       if (existing) return existing;
 
@@ -288,9 +310,10 @@ export function useMeetingRoom(
       };
 
       pcsRef.current[socketId] = pc;
+      peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost, isMuted, isCameraOff },
       }));
       return pc;
     },
@@ -321,6 +344,17 @@ export function useMeetingRoom(
     socketRef.current = socket;
 
     socket.on("connect", () => {
+      // A reconnect gets a new socket id. Close old peer connections so a
+      // stale socket cannot keep the roster/WebRTC state split between two
+      // generations of the same participant. The server immediately sends
+      // a fresh room:peers snapshot for the new socket.
+      Object.values(pcsRef.current).forEach((pc) => pc.close());
+      pcsRef.current = {};
+      pendingIceRef.current = {};
+      makingOfferRef.current = {};
+      processingOfferRef.current = {};
+      peerUsersRef.current = {};
+      setPeers({});
       setConnected(true);
       console.info("[Veyra] Socket connected", socket.id, "via", socket.io.engine.transport.name);
     });
@@ -340,28 +374,29 @@ export function useMeetingRoom(
 
     socket.on(
       "room:peers",
-      (existingPeers: { socketId: string; userId: number; name: string }[]) => {
+      (existingPeers: { socketId: string; userId: number; name: string; isHost?: boolean; isMuted?: boolean; isCameraOff?: boolean }[]) => {
         // Just create the connections — adding the local tracks inside
         // createPeerConnection triggers onnegotiationneeded automatically,
         // which sends the actual offer. Calling createOffer() explicitly
         // here too would race with that and send a duplicate/conflicting
         // offer (glare) on the very first connection attempt.
         for (const peer of existingPeers) {
-          createPeerConnection(peer.socketId, peer.userId, peer.name);
+          createPeerConnection(peer.socketId, peer.userId, peer.name, peer);
         }
       },
     );
 
-    socket.on("peer:joined", ({ socketId, userId, name }: { socketId: string; userId: number; name: string }) => {
+    socket.on("peer:joined", ({ socketId, userId, name, isHost, isMuted, isCameraOff }: { socketId: string; userId: number; name: string; isHost?: boolean; isMuted?: boolean; isCameraOff?: boolean }) => {
       // Just register their presence now; they'll receive our offer once
       // *they* get this room's peer list — no, wait: we are already here,
       // so per the handshake it's the newcomer who initiates. We simply
       // wait for their "webrtc:offer" and answer it below.
+      peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost, isMuted, isCameraOff },
       }));
-      callbacksRef.current.onPeerJoined?.({ socketId, userId, name });
+      callbacksRef.current.onPeerJoined?.({ socketId, userId, name, isHost, isMuted, isCameraOff });
     });
 
     socket.on(
@@ -406,6 +441,7 @@ export function useMeetingRoom(
           } else {
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
           }
+          await flushPendingIce(from, pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           socket.emit("webrtc:answer", { to: from, sdp: answer });
@@ -417,19 +453,24 @@ export function useMeetingRoom(
 
     socket.on("webrtc:answer", async ({ from, sdp }: { from: string; sdp: RTCSessionDescriptionInit }) => {
       const pc = pcsRef.current[from];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        await flushPendingIce(from, pc);
+      }
     });
 
     socket.on(
       "webrtc:ice-candidate",
       async ({ from, candidate }: { from: string; candidate: RTCIceCandidateInit }) => {
         const pc = pcsRef.current[from];
-        if (!pc) return;
+        if (!pc || !pc.remoteDescription) {
+          (pendingIceRef.current[from] ??= []).push(candidate);
+          return;
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch {
-          // Can happen if a candidate arrives before setRemoteDescription
-          // has resolved — benign, later candidates still get through.
+          // A candidate can become stale across a fast renegotiation.
         }
       },
     );
@@ -478,7 +519,10 @@ export function useMeetingRoom(
 
     socket.on("peer:left", ({ socketId, userId: leftUserId }: { socketId: string; userId: number }) => {
       removePeer(socketId);
-      callbacksRef.current.onPeerLeft?.({ socketId, userId: leftUserId });
+      const anotherSocket = Object.entries(peerUsersRef.current).some(
+        ([id, uid]) => id !== socketId && uid === leftUserId,
+      );
+      if (!anotherSocket) callbacksRef.current.onPeerLeft?.({ socketId, userId: leftUserId });
     });
 
     socket.on("participant:force-muted", ({ userId: mutedUserId }: { userId: number }) => {
@@ -548,10 +592,15 @@ export function useMeetingRoom(
     });
 
     socket.on("meeting:unmute-all", ({ userIds }: { userIds: number[] }) => {
-      // See the comment in participant:force-unmuted above — this
-      // deliberately never sets micOn on peers, only fires the callback
-      // for whichever of these is *me*.
-      if (myUserIdRef.current !== null && userIds.includes(myUserIdRef.current)) callbacksRef.current.onForceUnmuted?.();
+      const targetSet = new Set(userIds);
+      setPeers((prev) => {
+        const next = { ...prev };
+        for (const [socketId, peer] of Object.entries(prev)) {
+          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, micOn: true, isMuted: false };
+        }
+        return next;
+      });
+      if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) callbacksRef.current.onForceUnmuted?.();
     });
 
     socket.on("meeting:camera-off-all", ({ userIds }: { userIds: number[] }) => {
@@ -569,11 +618,15 @@ export function useMeetingRoom(
     });
 
     socket.on("meeting:camera-on-all", ({ userIds }: { userIds: number[] }) => {
-      // See the comment in participant:force-camera-on above — this is
-      // the bulk version of the exact same fix.
-      if (myUserIdRef.current !== null && userIds.includes(myUserIdRef.current)) {
-        callbacksRef.current.onForceCameraOn?.();
-      }
+      const targetSet = new Set(userIds);
+      setPeers((prev) => {
+        const next = { ...prev };
+        for (const [socketId, peer] of Object.entries(prev)) {
+          if (targetSet.has(peer.userId)) next[socketId] = { ...peer, cameraOn: true, isCameraOff: false };
+        }
+        return next;
+      });
+      if (myUserIdRef.current !== null && targetSet.has(myUserIdRef.current)) callbacksRef.current.onForceCameraOn?.();
     });
 
     socket.on(

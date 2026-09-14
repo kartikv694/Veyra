@@ -52,7 +52,7 @@ async function postInternal(path: string, body: Record<string, unknown>): Promis
 }
 
 /** Pushes an event to every socket in a meeting. */
-export async function emitToMeeting(roomToken: string, event: string, payload?: unknown): Promise<boolean> {
+export function emitToMeeting(roomToken: string, event: string, payload?: unknown): Promise<boolean> {
   return postInternal("/internal/emit-room", { roomToken, event, payload });
 }
 
@@ -60,7 +60,7 @@ export async function emitToMeeting(roomToken: string, event: string, payload?: 
  * Pushes an event to one user's socket(s) within a meeting, optionally
  * disconnecting them right after (used when removing a participant).
  */
-export async function emitToUser(
+export function emitToUser(
   roomToken: string,
   userId: number,
   event: string,

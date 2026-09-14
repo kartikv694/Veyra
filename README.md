@@ -535,11 +535,3 @@ internal target 9 Sept):
       Web Audio active-speaker rings, optional meeting passcode, login
       rate limiting
 - [ ] Optional chat, polish, final test pass
-
-## Production APP_URL
-
-Set `APP_URL` in the Vercel project to the public Veyra URL, for example:
-
-`https://veyra-kohl.vercel.app`
-
-The application uses `APP_URL` when generating shareable meeting links for email/API responses. Do not use `NEXT_PUBLIC_APP_URL`; `APP_URL` is intentionally server-side because it is consumed by Next.js route handlers.

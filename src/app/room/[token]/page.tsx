@@ -398,33 +398,28 @@ export default function RoomPage() {
         streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
         setMicOn(false);
         setMicLocked(true);
-        window.localStorage.setItem("veyra:mic-pref", "off");
         toast.info("The host muted you. You can't unmute yourself until the host allows it.");
       },
       onForceUnmuted: () => {
-        // Host "Unmute all" explicitly enables the participant's local
-        // microphone. This makes the bulk control affect the real track,
-        // not only the database/People panel state.
         streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = true));
         setMicOn(true);
         setMicLocked(false);
         window.localStorage.setItem("veyra:mic-pref", "on");
+        broadcastMediaState(true, cameraOn);
         toast.info("The host allowed your microphone.");
       },
       onForceCameraOff: () => {
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
         setCameraOn(false);
         setCameraLocked(true);
-        window.localStorage.setItem("veyra:camera-pref", "off");
         toast.info("The host turned off your camera. You can't turn it back on until the host allows it.");
       },
       onForceCameraOn: () => {
-        // A host "Camera on" is an explicit release/enable action.
-        // Re-enable the local video track immediately.
         streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = true));
         setCameraOn(true);
         setCameraLocked(false);
         window.localStorage.setItem("veyra:camera-pref", "on");
+        broadcastMediaState(micOn, true);
         toast.info("The host allowed your camera.");
       },
       onJoinRequest: (request) => {
@@ -439,14 +434,14 @@ export default function RoomPage() {
         setParticipants((prev) => {
           const existing = prev.find((p) => p.userId === peer.userId);
           if (existing) {
-            return prev.map((p) => p.userId === peer.userId ? { ...p, name: peer.name, leftAt: null } : p);
+            return prev.map((p) => p.userId === peer.userId ? { ...p, name: peer.name, isHost: Boolean(peer.isHost), isMuted: peer.isMuted ?? p.isMuted, isCameraOff: peer.isCameraOff ?? p.isCameraOff, leftAt: null } : p);
           }
           return [...prev, {
             userId: peer.userId,
             name: peer.name,
-            isHost: false,
-            isMuted: false,
-            isCameraOff: false,
+            isHost: Boolean(peer.isHost),
+            isMuted: Boolean(peer.isMuted),
+            isCameraOff: Boolean(peer.isCameraOff),
             joinedAt: new Date().toISOString(),
             leftAt: null,
           }];
@@ -503,6 +498,16 @@ export default function RoomPage() {
         return;
       }
       if (Array.isArray(data.participants)) setParticipants(data.participants);
+      setMicLocked(Boolean(data.participant?.isMuted));
+      setCameraLocked(Boolean(data.participant?.isCameraOff));
+      if (data.participant?.isMuted) {
+        streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
+        setMicOn(false);
+      }
+      if (data.participant?.isCameraOff) {
+        streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
+        setCameraOn(false);
+      }
       if (data.meeting) {
         setLocked(Boolean(data.meeting.locked));
         setPasscodeSet(Boolean(data.meeting.passcodeSet));
@@ -541,6 +546,16 @@ export default function RoomPage() {
           if (joinRes.ok) {
             const joinedData = await joinRes.json().catch(() => ({}));
             if (Array.isArray(joinedData.participants)) setParticipants(joinedData.participants);
+            setMicLocked(Boolean(joinedData.participant?.isMuted));
+            setCameraLocked(Boolean(joinedData.participant?.isCameraOff));
+            if (joinedData.participant?.isMuted) {
+              streamRef.current?.getAudioTracks().forEach((track) => (track.enabled = false));
+              setMicOn(false);
+            }
+            if (joinedData.participant?.isCameraOff) {
+              streamRef.current?.getVideoTracks().forEach((track) => (track.enabled = false));
+              setCameraOn(false);
+            }
             if (joinedData.meeting) {
               setLocked(Boolean(joinedData.meeting.locked));
               setPasscodeSet(Boolean(joinedData.meeting.passcodeSet));

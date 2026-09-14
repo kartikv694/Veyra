@@ -62,7 +62,8 @@ export async function POST(
         data: { isMuted: muted },
     });
 
-    emitToMeeting(token, muted ? "participant:force-muted" : "participant:force-unmuted", { userId: targetUserId });
+    const delivered = await emitToMeeting(token, muted ? "participant:force-muted" : "participant:force-unmuted", { userId: targetUserId });
+    if (!delivered) return NextResponse.json({ error: "Meeting realtime server is unavailable. Please retry." }, { status: 503 });
 
     return NextResponse.json({ userId: targetUserId, muted });
 }

@@ -8,13 +8,13 @@
  * "New meeting" and "Join meeting" — and only checks auth once one of them
  * is clicked:
  *
- *   - authenticated -> New meeting goes to /dashboard only. The user must
- *     explicitly click "Create room" there; no room is created from the
- *     landing page. Join meeting keeps its existing intent/focus behavior.
- *   - not authenticated -> Join intent is stashed in localStorage and the
- *     visitor is sent to /login. A create click simply sends the visitor to
- *     login; after authentication they land on /dashboard and create the
- *     room manually.
+ *   - authenticated  -> straight to /dashboard, with ?intent= so the
+ *     dashboard can act on it immediately (auto-start creation, or focus
+ *     the join-code field) instead of making them click again.
+ *   - not authenticated -> the intent is stashed in localStorage and the
+ *     visitor is sent to /login. Login (or a signup it bounces to — see
+ *     that page) redirects back to /dashboard once they're in; the
+ *     dashboard picks the stashed intent back up from there.
  *
  * The auth check itself is `checkAuth()` (GET /api/auth/me) — never just a
  * "is there a token in localStorage" guess — so an expired/invalid token
@@ -45,23 +45,11 @@ export default function LandingPage() {
     const user = await checkAuth();
 
     if (user) {
-      // Creating a meeting from the landing page must never create a room
-      // automatically. Always take authenticated users to the dashboard
-      // where they can explicitly click "Create room".
-      if (intent === "create") {
-        router.push("/dashboard");
-        return;
-      }
-
-      router.push("/dashboard?intent=join");
+      router.push(`/dashboard?intent=${intent}`);
       return;
     }
 
-    // Only preserve the join intent. A create click should not cause the
-    // dashboard to auto-create a room after login.
-    if (intent === "join") {
-      window.localStorage.setItem(INTENT_STORAGE_KEY, "join");
-    }
+    window.localStorage.setItem(INTENT_STORAGE_KEY, intent);
     toast.info("Please sign in to continue.");
     router.push("/login");
   }

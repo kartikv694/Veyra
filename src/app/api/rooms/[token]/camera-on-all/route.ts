@@ -33,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   }
 
   const targets = await prisma.participants.findMany({
-    where: { meetingId: meeting.id, leftAt: null, isHost: false, isCameraOff: true },
+    where: { meetingId: meeting.id, leftAt: null, isHost: false },
     select: { userId: true },
   });
 
@@ -43,7 +43,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   });
 
   const userIds = targets.map((t) => t.userId);
-  await emitToMeeting(token, "meeting:camera-on-all", { userIds });
+  const delivered = await emitToMeeting(token, "meeting:camera-on-all", { userIds });
+  if (!delivered) {
+    return NextResponse.json({ error: "Meeting realtime server is unavailable. Please retry." }, { status: 503 });
+  }
 
   return NextResponse.json({ camerasOn: userIds });
 }
