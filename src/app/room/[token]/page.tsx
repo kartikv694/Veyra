@@ -383,6 +383,7 @@ export default function RoomPage() {
     peers,
     connected,
     broadcastMediaState,
+    emitHostControl,
     addScreenShareTrack,
     removeScreenShareTrack,
     broadcastScreenShareState,
@@ -987,6 +988,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't mute that participant.");
       setParticipants((prev) => prev.map((p) => p.userId === data.userId ? { ...p, isMuted: Boolean(data.muted) } : p));
+      emitHostControl("host:mute-participant", { userId: data.userId, muted: Boolean(data.muted) });
       toast.success(data.muted ? "Participant muted." : "Participant unmuted.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -999,6 +1001,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't turn off that participant's camera.");
       setParticipants((prev) => prev.map((p) => p.userId === data.userId ? { ...p, isCameraOff: Boolean(data.cameraOff) } : p));
+      emitHostControl("host:camera-participant", { userId: data.userId, cameraOff: Boolean(data.cameraOff) });
       toast.success(data.cameraOff ? "Camera turned off." : "Camera turned on.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -1011,6 +1014,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't mute everyone.");
       setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isMuted: true }));
+      emitHostControl("host:mute-all", { userIds: Array.isArray(data.muted) ? data.muted : [], muted: true });
       toast.success("Muted everyone.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -1023,6 +1027,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't unmute everyone.");
       setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isMuted: false }));
+      emitHostControl("host:mute-all", { userIds: Array.isArray(data.unmuted) ? data.unmuted : [], muted: false });
       toast.success("Allowed microphones for everyone.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -1035,6 +1040,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't turn off everyone's camera.");
       setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isCameraOff: true }));
+      emitHostControl("host:camera-all", { userIds: Array.isArray(data.camerasOff) ? data.camerasOff : [], cameraOff: true });
       toast.success("Turned off everyone's camera.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -1047,6 +1053,7 @@ export default function RoomPage() {
       const data = await res.json();
       if (!res.ok) return toast.error(data.error ?? "Couldn't turn on everyone's camera.");
       setParticipants((prev) => prev.map((p) => p.isHost ? p : { ...p, isCameraOff: false }));
+      emitHostControl("host:camera-all", { userIds: Array.isArray(data.camerasOn) ? data.camerasOn : [], cameraOff: false });
       toast.success("Allowed cameras for everyone.");
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");

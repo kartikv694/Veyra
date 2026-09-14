@@ -652,6 +652,17 @@ export function useMeetingRoom(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomToken, enabled]);
 
+  /** Send a host control over the already-authenticated Socket.IO connection. */
+  const emitHostControl = useCallback((
+    event: "host:mute-participant" | "host:camera-participant" | "host:mute-all" | "host:camera-all",
+    payload: unknown,
+  ): boolean => {
+    const socket = socketRef.current;
+    if (!socket || !socket.connected) return false;
+    socket.emit(event, payload);
+    return true;
+  }, []);
+
   const broadcastMediaState = useCallback((micOn: boolean, cameraOn: boolean) => {
     socketRef.current?.emit("peer:media-state", { micOn, cameraOn });
   }, []);
@@ -722,6 +733,7 @@ export function useMeetingRoom(
     peers: Object.values(peers),
     connected,
     broadcastMediaState,
+    emitHostControl,
     addScreenShareTrack,
     removeScreenShareTrack,
     broadcastScreenShareState,

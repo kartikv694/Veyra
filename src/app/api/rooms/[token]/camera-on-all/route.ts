@@ -15,7 +15,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { emitToMeeting } from "@/lib/socket-emitters";
 
 export const runtime = "nodejs";
 
@@ -43,10 +42,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   });
 
   const userIds = targets.map((t) => t.userId);
-  const delivered = await emitToMeeting(token, "meeting:camera-on-all", { userIds });
-  if (!delivered) {
-    return NextResponse.json({ error: "Meeting realtime server is unavailable. Please retry." }, { status: 503 });
-  }
 
   return NextResponse.json({ camerasOn: userIds });
 }

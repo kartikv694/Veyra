@@ -28,7 +28,6 @@
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { resolveHostAction } from "@/lib/host-action";
 import { prisma } from "@/lib/prisma";
-import { emitToMeeting } from "@/lib/socket-emitters";
 import { NextRequest, NextResponse } from "next/server";
 
 
@@ -61,9 +60,6 @@ export async function POST(
         where: { id: resolved.target.id },
         data: { isMuted: muted },
     });
-
-    const delivered = await emitToMeeting(token, muted ? "participant:force-muted" : "participant:force-unmuted", { userId: targetUserId });
-    if (!delivered) return NextResponse.json({ error: "Meeting realtime server is unavailable. Please retry." }, { status: 503 });
 
     return NextResponse.json({ userId: targetUserId, muted });
 }
