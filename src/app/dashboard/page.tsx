@@ -27,6 +27,8 @@ import { Plus, LogIn, Copy, Check, Users, Calendar, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { BrandLink } from "@/components/BrandLink";
 import { UserMenu } from "@/components/UserMenu";
+import { LoadingScreen } from "@/components/LoadingScreen";
+import { SkeletonRows } from "@/components/SkeletonRows";
 import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
 
 const INTENT_STORAGE_KEY = "veyra_intent";
@@ -64,6 +66,7 @@ export default function DashboardPage() {
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
+  const [meetingsLoading, setMeetingsLoading] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState("");
   const [scheduleEmails, setScheduleEmails] = useState("");
@@ -71,10 +74,14 @@ export default function DashboardPage() {
   const joinInputRef = useRef<HTMLInputElement>(null);
 
   const loadMeetings = async () => {
-    const res = await fetch("/api/rooms", { headers: authHeaders() });
-    if (res.ok) {
-      const data = await res.json();
-      setMeetings(data.meetings);
+    try {
+      const res = await fetch("/api/rooms", { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        setMeetings(data.meetings);
+      }
+    } finally {
+      setMeetingsLoading(false);
     }
   };
 
@@ -185,9 +192,7 @@ export default function DashboardPage() {
   }, []);
 
   if (checkingAuth || !user) {
-    // Deliberately minimal — this should only ever flash briefly while
-    // checkAuth() resolves.
-    return <div className="min-h-screen bg-bg" />;
+    return <LoadingScreen variant="themed" message="Loading..." />;
   }
 
   return (
@@ -288,7 +293,11 @@ export default function DashboardPage() {
 
         <div className="mt-10">
           <h3 className="text-sm font-semibold text-muted">Recent meetings</h3>
-          {meetings.length === 0 ? (
+          {meetingsLoading ? (
+            <div className="mt-3">
+              <SkeletonRows count={3} />
+            </div>
+          ) : meetings.length === 0 ? (
             <div className="mt-3 flex flex-col items-center justify-center rounded-xl border border-dashed border-edge py-12 text-center">
               <Users size={22} className="text-muted" />
               <p className="mt-2 text-sm text-muted">No meetings yet — create your first room above.</p>

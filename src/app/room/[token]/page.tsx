@@ -27,6 +27,7 @@ import { toast, confirmToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
 import { ParticipantList, type ParticipantRow } from "@/components/ParticipantList";
+import { LoadingScreen } from "@/components/LoadingScreen";
 import { checkAuth, authHeaders, type SessionUser } from "@/lib/auth-client";
 import { useMeetingRoom } from "@/hooks/useMeetingRoom";
 
@@ -1225,11 +1226,11 @@ export default function RoomPage() {
   const activeParticipantCount = others.length + 1;
 
   if (checkingAuth || !me) {
-    return <div className="min-h-screen bg-[#0f1012]" />;
+    return <LoadingScreen message="Loading..." />;
   }
 
   if (!hostCheckDone) {
-    return <div className="min-h-screen bg-[#0f1012]" />;
+    return <LoadingScreen message="Joining meeting..." />;
   }
 
   if (!joined && !isHost) {
