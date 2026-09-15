@@ -149,7 +149,7 @@ function MeetingPanel({
   if (!panel) return null;
 
   return (
-    <aside className="absolute inset-y-2 right-2 z-30 flex w-[min(360px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl bg-[#202124] shadow-2xl ring-1 ring-white/10 sm:inset-y-3 sm:right-3">
+    <aside className="absolute inset-0 z-30 flex flex-col overflow-hidden bg-[#202124] shadow-2xl ring-1 ring-white/10 sm:inset-y-3 sm:right-3 sm:inset-x-auto sm:w-[min(360px,calc(100vw-16px))] sm:rounded-2xl">
       {panel === "people" && (
         <ParticipantList
           open
@@ -208,7 +208,7 @@ function MeetingPanel({
             )}
           </div>
 
-          <div className="border-t border-white/10 p-4">
+          <div className="border-t border-white/10 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="rounded-full border border-white/15 bg-[#1a1b1e] px-4 py-2">
               <form
                 onSubmit={(event) => {

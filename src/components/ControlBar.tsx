@@ -8,6 +8,7 @@
  * "More options" menu, not here — see room/[token]/page.tsx).
  */
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AudioLines,
   Captions,
@@ -118,7 +119,7 @@ export function ControlBar({
   return (
     <>
       {/* Google Meet-style bottom control strip */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-4 sm:pb-5">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-5">
         <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-[#202124]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,.45)] backdrop-blur-xl sm:gap-2 sm:p-2">
           <div
             aria-label="Speaking activity"
@@ -166,21 +167,24 @@ export function ControlBar({
             <ControlButton onClick={() => setReactionsOpen((v) => !v)} label="Reactions" active={reactionsOpen}>
               <Smile size={21} />
             </ControlButton>
-            {reactionsOpen && (
-              <div className="absolute bottom-14 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-[#202124] p-1.5 shadow-2xl ring-1 ring-white/10">
-                {QUICK_REACTIONS.map((emoji) => (
-                  <button
-                    key={emoji}
-                    onClick={() => {
-                      onReact?.(emoji);
-                      setReactionsOpen(false);
-                    }}
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-lg transition-transform hover:scale-125 hover:bg-white/10"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
+            {reactionsOpen && createPortal(
+              <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-3 sm:bottom-24">
+                <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-[#202124] p-1.5 shadow-2xl ring-1 ring-white/10">
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      onClick={() => {
+                        onReact?.(emoji);
+                        setReactionsOpen(false);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-lg transition-transform hover:scale-125 hover:bg-white/10"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>,
+              document.body,
             )}
           </div>
 
