@@ -119,7 +119,7 @@ export function ControlBar({
     <>
       {/* Google Meet-style bottom control strip */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-4 sm:pb-5">
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-[#202124]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,.45)] backdrop-blur-xl sm:gap-2 sm:p-2">
+        <div className="pointer-events-auto flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full bg-[#202124]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,.45)] backdrop-blur-xl sm:gap-2 sm:p-2">
           <div
             aria-label="Speaking activity"
             title="Speaking activity"
@@ -184,20 +184,33 @@ export function ControlBar({
             )}
           </div>
 
-          <ControlButton
-            onClick={onToggleCaptions ?? (() => toast.info("Captions aren't available right now."))}
-            label={captionsOn ? "Turn off captions" : "Turn on captions"}
-            active={captionsOn}
-          >
-            <Captions size={20} />
-          </ControlButton>
+          <div className="hidden sm:contents">
+            <ControlButton
+              onClick={onToggleCaptions ?? (() => toast.info("Captions aren't available right now."))}
+              label={captionsOn ? "Turn off captions" : "Turn on captions"}
+              active={captionsOn}
+            >
+              <Captions size={20} />
+            </ControlButton>
+          </div>
 
-          <ControlButton
-            onClick={onToggleHandRaise ?? (() => undefined)}
-            label={handRaised ? "Lower hand" : "Raise hand"}
-            active={handRaised}
-          >
-            <Hand size={20} />
+          <div className="hidden sm:contents">
+            <ControlButton
+              onClick={onToggleHandRaise ?? (() => undefined)}
+              label={handRaised ? "Lower hand" : "Raise hand"}
+              active={handRaised}
+            >
+              <Hand size={20} />
+            </ControlButton>
+          </div>
+
+          {/* People moved into the main pill, unlike chat/tools below —
+              this is the one of the three utility buttons genuinely core
+              to using the room (seeing who's here, host actions on
+              them), so unlike chat/tools it shouldn't disappear below md
+              just because that separate utility strip is desktop-only. */}
+          <ControlButton onClick={onToggleParticipants} label="People" active={participantsOpen}>
+            <Users size={20} />
           </ControlButton>
 
           <ControlButton onClick={onMoreClick ?? (() => undefined)} label="More options">
@@ -225,9 +238,6 @@ export function ControlBar({
           <span className="grid grid-cols-3 gap-1">
             {Array.from({ length: 9 }).map((_, i) => <span key={i} className="h-1.5 w-1.5 rounded-sm bg-current" />)}
           </span>
-        </button>
-        <button onClick={onToggleParticipants} aria-label="People" title="People" className={`flex h-11 w-11 items-center justify-center rounded-full ${participantsOpen ? "bg-white text-black" : "text-white/90 hover:bg-white/10"}`}>
-          <Users size={19} />
         </button>
       </div>
     </>

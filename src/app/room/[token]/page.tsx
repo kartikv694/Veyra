@@ -15,6 +15,8 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  LayoutGrid,
+  Hand,
   Send,
   Timer,
   UserPlus,
@@ -1588,6 +1590,44 @@ export default function RoomPage() {
           >
             <Captions size={18} />
             <span>{captionsOn ? "Turn off captions" : "Turn on captions"}</span>
+          </button>
+
+          {/* Mobile-only — on larger screens these three already have
+              their own dedicated buttons (hand raise in the main pill,
+              chat/tools in the bottom-right utility strip), so showing
+              them here too would just be a redundant duplicate. Below
+              those breakpoints, this menu is the only way to reach
+              them — without this they'd have been genuinely
+              unreachable, not just relocated. */}
+          <button
+            onClick={() => {
+              handleToggleHandRaise();
+              setMenuOpen(false);
+            }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10 sm:hidden"
+          >
+            <Hand size={18} />
+            <span>{handRaised ? "Lower hand" : "Raise hand"}</span>
+          </button>
+          <button
+            onClick={() => {
+              setActivePanel("chat");
+              setMenuOpen(false);
+            }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10 md:hidden"
+          >
+            <MessageSquare size={18} />
+            <span>Chat</span>
+          </button>
+          <button
+            onClick={() => {
+              setActivePanel("tools");
+              setMenuOpen(false);
+            }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10 md:hidden"
+          >
+            <LayoutGrid size={18} />
+            <span>Meeting tools</span>
           </button>
         </div>
       )}
