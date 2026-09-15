@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   // creation itself — same "best-effort, but logged" pattern as the
   // invite/reset emails elsewhere in this file.
   try {
-    await sendWelcomeEmail({ to: user.email, name: user.name });
+    await sendWelcomeEmail({ to: user.email, name: user.name ?? user.email });
   } catch (err) {
     console.error(`Failed to send welcome email to ${user.email}:`, err);
   }

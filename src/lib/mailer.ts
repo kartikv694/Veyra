@@ -60,6 +60,17 @@ type MailOptions = {
   subject: string;
   text: string;
   html?: string;
+  /** Shown as the sender's display name — e.g. "Kartik Verma via Veyra".
+   *  The actual sending address is always the authenticated SMTP
+   *  account; Gmail (like virtually every provider) requires the From
+   *  address to match whoever authenticated, to prevent spoofing, so
+   *  this is the display name, not the address itself. */
+  fromName?: string;
+  /** If set, replies go here instead of the SMTP account — this is how
+   *  an invite "from" a specific host actually reaches that host when
+   *  someone hits Reply, without needing to send through their own
+   *  address (which SMTP won't allow anyway). */
+  replyTo?: string;
 };
 
 async function sendMail(options: MailOptions) {
@@ -67,17 +78,19 @@ async function sendMail(options: MailOptions) {
   const user = env("SMTP_USER_EMAIL");
 
   await transporter.sendMail({
-    from: `"Veyra" <${user}>`,
+    from: `"${options.fromName ?? "Veyra"}" <${user}>`,
     to: options.to,
     subject: options.subject,
     text: options.text,
     html: options.html,
+    replyTo: options.replyTo,
   });
 }
 
 export async function sendMeetingInviteEmail(args: {
   to: string;
   hostName: string;
+  hostEmail?: string;
   meetingUrl: string;
   scheduledAt?: Date | null;
 }) {
@@ -99,7 +112,14 @@ export async function sendMeetingInviteEmail(args: {
       <p>Open the link to view the meeting and join when the host starts it.</p>
     </div>`;
 
-  await sendMail({ to: args.to, subject, text, html });
+  await sendMail({
+    to: args.to,
+    subject,
+    text,
+    html,
+    fromName: `${args.hostName} via Veyra`,
+    replyTo: args.hostEmail,
+  });
 }
 
 export async function sendWelcomeEmail(args: { to: string; name: string }) {

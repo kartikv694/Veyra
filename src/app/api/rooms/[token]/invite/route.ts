@@ -76,7 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   // success.
   const meetingUrl = buildRoomLink(meeting.token);
   const results = await Promise.allSettled(
-    emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, meetingUrl, scheduledAt: meeting.scheduledAt })),
+    emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt: meeting.scheduledAt })),
   );
   const failedEmails: string[] = [];
   results.forEach((result, i) => {

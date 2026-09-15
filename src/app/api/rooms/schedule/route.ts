@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   const failedEmails: string[] = [];
   if (emails.length) {
     const results = await Promise.allSettled(
-      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, meetingUrl, scheduledAt })),
+      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt })),
     );
     results.forEach((result, i) => {
       if (result.status === "rejected") {
