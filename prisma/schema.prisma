@@ -106,6 +106,14 @@ model Meeting {
   /// "Asking to join" requests from non-invited joiners — see `JoinRequest`.
   joinRequests JoinRequest[]
 
+  /// Live in-meeting chat, kept only for the meeting's duration — see
+  /// `ChatMessage`. Deleted when the host ends the meeting (POST
+  /// /api/rooms/[token]/end), matching the room's own "live only, not
+  /// saved anywhere" chat design: this is what lets a refresh recover the
+  /// conversation while the meeting is still going, without turning chat
+  /// into a permanent record once it's over.
+  chatMessages ChatMessage[]
+
   /// When the meeting room was created (i.e. when the host started it).
   createdAt DateTime @default(now())
 
@@ -258,4 +266,37 @@ enum JoinRequestStatus {
   PENDING
   ADMITTED
   DENIED
+}
+
+/// One in-meeting chat message. Written by the socket server (see
+/// backend/server.ts's peer:chat-message handler) the moment a message is
+/// sent, and read back by the room page on load/refresh so a reload
+/// doesn't lose the conversation — the gap this model closes. `fromName`
+/// is stored directly rather than joined from `Users` on every read,
+/// since a display name shouldn't retroactively change what an old
+/// message showed if the sender later renames their account.
+model ChatMessage {
+  /// Surrogate primary key.
+  id Int @id @default(autoincrement())
+
+  /// The meeting this message belongs to. Rows are deleted (not just
+  /// hidden) when the host ends the meeting — see `Meeting.chatMessages`.
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// Foreign key for `meeting`.
+  meetingId Int
+
+  /// Who sent it.
+  userId Int
+
+  /// Sender's display name at the time they sent this message.
+  fromName String
+
+  /// The message content.
+  text String
+
+  /// When it was sent.
+  createdAt DateTime @default(now())
+
+  @@index([meetingId, createdAt])
 }

@@ -450,6 +450,39 @@ export default function RoomPage() {
     return () => clearInterval(id);
   }, [joined, isHost, token]);
 
+  // Recovers chat history on join/refresh — without this, chatMessages
+  // always started empty regardless of what was actually said earlier in
+  // the meeting, since messages only ever arrived live over the socket
+  // and nothing populated the initial state from what's already been
+  // sent. Runs once per join, not on every render — chatMessages itself
+  // isn't a dependency here on purpose, since new live messages append
+  // to it locally and shouldn't re-trigger a full re-fetch.
+  useEffect(() => {
+    if (!joined) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/rooms/${token}/chat`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.messages)) {
+          setChatMessages(
+            data.messages.map((m: { id: number; userId: number; fromName: string; text: string; at: number }) => ({
+              id: `history-${m.id}`,
+              text: m.text,
+              fromName: m.fromName,
+              fromUserId: m.userId,
+              at: m.at,
+            })),
+          );
+        }
+      } catch {
+        // Not worth retrying hard — chat still works live even if history
+        // fails to load, this just means starting from an empty history.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joined, token]);
+
   const {
     peers,
     connected,

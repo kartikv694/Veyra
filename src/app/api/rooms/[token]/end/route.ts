@@ -56,6 +56,11 @@ export async function POST(
             data: { leftAt: endAt },
         });
 
+        // Chat is "live only, not saved anywhere" by design — recoverable
+        // on a refresh during the meeting (see GET .../chat), but not a
+        // permanent record once the meeting itself is over.
+        await tx.chatMessage.deleteMany({ where: { meetingId: meeting.id } });
+
         return updatedMeeting;
     });
 
