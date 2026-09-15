@@ -324,6 +324,17 @@ export function useMeetingRoom(
     const token = getToken();
     if (!enabled || !token || !roomToken) return;
 
+    // Set true the moment cleanup starts (see the return below) — guards
+    // the handlers below from logging a connection failure that was
+    // already in flight when we left the page. socket.disconnect()
+    // stops future reconnection attempts, but an attempt that had
+    // already been dispatched can still have its error callback fire a
+    // moment after unmount begins, which was producing a "connection
+    // failed" console.error after the person had already navigated away
+    // from the meeting entirely — harmless, but noisy (and in dev,
+    // Next.js turns any console.error into a blocking overlay).
+    let cancelled = false;
+
     // Connects directly to the standalone socket server (see
     // ../../../socket-server — a separate project/deployment, not this
     // Next.js app), since Socket.IO needs a persistent process this app's
@@ -339,7 +350,11 @@ export function useMeetingRoom(
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
-      timeout: 10000,
+      // 20s, not the original 10s — a free-tier backend host waking from
+      // sleep (cold start) can easily take longer than 10s to respond,
+      // and a real timeout error here (vs. just waiting a bit longer)
+      // was firing more often than the connection was actually failing.
+      timeout: 20000,
     });
     socketRef.current = socket;
 
@@ -359,6 +374,7 @@ export function useMeetingRoom(
       console.info("[Veyra] Socket connected", socket.id, "via", socket.io.engine.transport.name);
     });
     socket.on("connect_error", (error) => {
+      if (cancelled) return;
       setConnected(false);
       const socketError = error as Error & { description?: string };
       console.error("[Veyra] Socket connection failed", {
@@ -654,6 +670,7 @@ export function useMeetingRoom(
     });
 
     return () => {
+      cancelled = true;
       Object.keys(pcsRef.current).forEach(removePeer);
       socket.disconnect();
       socketRef.current = null;
