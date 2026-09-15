@@ -102,6 +102,18 @@ export async function sendMeetingInviteEmail(args: {
   await sendMail({ to: args.to, subject, text, html });
 }
 
+export async function sendWelcomeEmail(args: { to: string; name: string }) {
+  const subject = "Welcome to Veyra";
+  const text = `Hi ${args.name},\n\nYour Veyra account is ready. Start a meeting and share the link, or join one with a code — no downloads required.\n\n— The Veyra team`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124">
+      <h2>Welcome to Veyra, ${escapeHtml(args.name)}</h2>
+      <p>Your account is ready. Start a meeting and share the link, or join one with a code — no downloads required.</p>
+    </div>`;
+
+  await sendMail({ to: args.to, subject, text, html });
+}
+
 export async function sendPasswordResetEmail(args: { to: string; code: string; validMinutes: number }) {
   const subject = "Your Veyra password reset code";
   const text = `Your Veyra password reset code is ${args.code}. It expires in ${args.validMinutes} minutes. If you didn't request this, you can safely ignore this email.`;

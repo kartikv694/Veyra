@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, signAuthToken } from "@/lib/auth";
+import { sendWelcomeEmail } from "@/lib/mailer";
 
 // Prisma needs the Node.js runtime (not the Edge runtime).
 export const runtime = "nodejs";
@@ -59,6 +60,18 @@ export async function POST(req: NextRequest) {
   });
 
   const token = signAuthToken({ sub: user.id, email: user.email });
+
+  // Awaited (unlike a true fire-and-forget) — on Vercel, an unawaited
+  // async call can get killed mid-flight the moment the function
+  // returns its response, before it actually finishes sending. Wrapped
+  // in try/catch so a failed or slow email still doesn't break account
+  // creation itself — same "best-effort, but logged" pattern as the
+  // invite/reset emails elsewhere in this file.
+  try {
+    await sendWelcomeEmail({ to: user.email, name: user.name });
+  } catch (err) {
+    console.error(`Failed to send welcome email to ${user.email}:`, err);
+  }
 
   return NextResponse.json({ user, token }, { status: 201 });
 }

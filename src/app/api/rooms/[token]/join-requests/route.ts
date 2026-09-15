@@ -1,9 +1,10 @@
 /**
  * Host-only. Lists everyone currently waiting to be admitted into this
  * meeting — the "Waiting to be admitted" list (matches Meet's own
- * People panel section). Used for the initial/refresh load; new
- * requests as they come in are pushed live via the "join-request:new"
- * socket event instead of requiring a re-fetch.
+ * People panel section). Used for the initial load, and also polled
+ * periodically by the room page as a fallback in case the "new request"
+ * socket push (join-request:new) is slow or dropped — see the polling
+ * effect in room/[token]/page.tsx for why that matters.
  *
  * Responses:
  *   200  { requests: { id, userId, name, requestedAt }[] }

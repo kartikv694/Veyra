@@ -387,6 +387,17 @@ export default function RoomPage() {
   // stuck in an already-ended room with no way to find out, since
   // nothing else here was actually checking Meeting.endAt despite the
   // end route's own comment claiming this fallback existed.
+  //
+  // Also reconciles the participants roster on every tick — this is what
+  // fixes a refresh incorrectly showing "left": when a participant
+  // refreshes, their old socket disconnects (broadcasting peer:left)
+  // before their new page has finished reconnecting (broadcasting
+  // peer:joined back). If the backend is at all slow to respond in that
+  // gap — which a cold-starting host is exactly the kind of thing that
+  // causes — that "left" state can visibly linger far longer than it
+  // should. Polling the database (the actual source of truth, where
+  // leftAt gets correctly cleared the moment they rejoin) lets it
+  // self-correct within one tick, independent of socket timing.
   useEffect(() => {
     if (!joined) return;
     const id = setInterval(async () => {
@@ -394,13 +405,48 @@ export default function RoomPage() {
         const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
         if (!res.ok) return;
         const data = await res.json();
-        if (data.meeting?.endAt) exitMeeting("ended");
+        if (data.meeting?.endAt) {
+          exitMeeting("ended");
+          return;
+        }
+        if (Array.isArray(data.participants)) setParticipants(data.participants);
       } catch {
         // Transient network hiccup — the next tick retries.
       }
     }, 5000);
     return () => clearInterval(id);
   }, [joined, token, exitMeeting]);
+
+  // Fallback for join requests reaching the host: join-request:new is the
+  // fast path (near-instant when the signaling connection is healthy),
+  // but same reasoning as above — if the backend is slow to relay it,
+  // the host had no way to find out short of refreshing the page
+  // themselves, despite this endpoint's own comment claiming the socket
+  // push made a re-fetch unnecessary. Polling every 3s (matching the
+  // waiting-room side's own poll interval) keeps this to a few seconds
+  // at most, regardless of the socket's timing, without needing a
+  // manual refresh — merges by id so an eventually-arriving socket event
+  // for the same request doesn't create a duplicate.
+  useEffect(() => {
+    if (!joined || !isHost) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/rooms/${token}/join-requests`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.requests)) return;
+        setPendingRequests((prev) => {
+          const known = new Set(prev.map((r) => r.id));
+          const fresh = data.requests.filter((r: { id: number }) => !known.has(r.id));
+          return fresh.length ? [...prev, ...fresh] : prev;
+        });
+      } catch {
+        // Transient network hiccup — the next tick retries.
+      }
+    };
+    const id = setInterval(poll, 3000);
+    return () => clearInterval(id);
+  }, [joined, isHost, token]);
 
   const {
     peers,
