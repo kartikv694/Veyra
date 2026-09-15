@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { User as UserIcon, LogOut } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { clearSession, type SessionUser } from "@/lib/auth-client";
@@ -31,7 +30,6 @@ interface UserMenuProps {
  * and "Log out".
  */
 export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -48,13 +46,14 @@ export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
   const handleLogout = () => {
     clearSession();
     toast.info("Signed out.");
-    // router.push("/") alone is a no-op if we're already ON "/" — Next.js
-    // won't refetch/re-render just because the destination matches the
-    // current route, so the page kept showing the now-stale "logged in"
-    // UI even though the token really had been cleared. refresh() forces
-    // it to actually re-render around the new (logged-out) state.
-    router.push("/");
-    router.refresh();
+    // A full reload, not router.push + router.refresh — refresh() only
+    // re-fetches server data, it doesn't force already-mounted client
+    // components to remount. Navbar sets its own "user" state once on
+    // mount (via checkAuth()) and never re-checks it afterward, so a soft
+    // refresh left it showing the stale logged-in avatar even though the
+    // token really had been cleared. A full reload guarantees every
+    // component starts clean.
+    window.location.href = "/";
   };
 
   return (
@@ -75,6 +74,7 @@ export function UserMenu({ user, variant = "themed" }: UserMenuProps) {
 
       {open && (
         <div
+          onMouseDown={(e) => e.stopPropagation()}
           className={`absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg border shadow-lg ${
             dark ? "border-white/10 bg-[#171A21] text-white" : "border-edge bg-surface text-ink"
           }`}

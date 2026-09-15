@@ -13,10 +13,12 @@
  *
  * Also honors an "intent" the landing page may have set before sending
  * someone here (?intent=create|join in the URL for an already-authenticated
- * visitor, or stashed in localStorage if they had to log in first): arriving
- * with intent=create auto-starts room creation; intent=join focuses the
- * join-code field. Either way the intent is consumed once and not reapplied
- * on a later visit.
+ * visitor, or stashed in localStorage if they had to log in first):
+ * intent=join focuses the join-code field so they can drop a code straight
+ * in. intent=create deliberately does NOT auto-create a meeting — landing
+ * here is as far as it goes, the person clicks "New meeting" themselves
+ * from here, same as anyone who navigated to the dashboard directly. Either
+ * way the intent is consumed once and not reapplied on a later visit.
  */
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -171,9 +173,7 @@ export default function DashboardPage() {
       await loadMeetings();
 
       const intent = consumeIntent();
-      if (intent === "create") {
-        handleCreateRoom();
-      } else if (intent === "join") {
+      if (intent === "join") {
         joinInputRef.current?.focus();
       }
     })();
