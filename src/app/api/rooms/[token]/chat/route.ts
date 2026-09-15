@@ -11,7 +11,7 @@
  * Responses:
  *   200  { messages: { id, userId, fromName, text, at }[] }
  *   401  { error }
- *   403  { error }  — caller isn't an active participant of this meeting
+ *   403  { error }  — caller has never been a participant of this meeting
  *   404  { error }  — no such meeting
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
   }
 
   const isParticipant = await prisma.participants.findFirst({
-    where: { meetingId: meeting.id, userId: auth.sub, leftAt: null },
+    where: { meetingId: meeting.id, userId: auth.sub },
   });
   if (!isParticipant) {
     return NextResponse.json({ error: "You're not currently in this meeting." }, { status: 403 });

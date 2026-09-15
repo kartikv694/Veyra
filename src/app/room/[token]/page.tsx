@@ -149,7 +149,7 @@ function MeetingPanel({
   if (!panel) return null;
 
   return (
-    <aside className="absolute inset-0 z-30 flex flex-col overflow-hidden bg-[#202124] shadow-2xl ring-1 ring-white/10 sm:inset-y-3 sm:right-3 sm:inset-x-auto sm:w-[min(360px,calc(100vw-16px))] sm:rounded-2xl">
+    <aside className="absolute inset-x-0 top-0 bottom-24 z-30 flex flex-col overflow-hidden bg-[#202124] shadow-2xl ring-1 ring-white/10 sm:inset-x-auto sm:top-3 sm:right-3 sm:bottom-24 sm:w-[min(360px,calc(100vw-16px))] sm:rounded-2xl">
       {panel === "people" && (
         <ParticipantList
           open
@@ -459,12 +459,19 @@ export default function RoomPage() {
   // to it locally and shouldn't re-trigger a full re-fetch.
   useEffect(() => {
     if (!joined) return;
+    console.info("[Veyra] Fetching chat history for", token);
     (async () => {
       try {
         const res = await fetch(`/api/rooms/${token}/chat`, { headers: authHeaders() });
-        if (!res.ok) return;
+        console.info("[Veyra] Chat history response status:", res.status);
+        if (!res.ok) {
+          console.error(`[Veyra] Failed to load chat history: ${res.status}`, await res.json().catch(() => null));
+          return;
+        }
         const data = await res.json();
+        console.info("[Veyra] Chat history payload:", data);
         if (Array.isArray(data.messages)) {
+          console.info(`[Veyra] Loaded ${data.messages.length} chat message(s) from history`);
           setChatMessages(
             data.messages.map((m: { id: number; userId: number; fromName: string; text: string; at: number }) => ({
               id: `history-${m.id}`,
@@ -474,10 +481,15 @@ export default function RoomPage() {
               at: m.at,
             })),
           );
+        } else {
+          console.error("[Veyra] Chat history payload had no messages array:", data);
         }
-      } catch {
-        // Not worth retrying hard — chat still works live even if history
-        // fails to load, this just means starting from an empty history.
+      } catch (err) {
+        // Chat still works live even if history fails to load — this
+        // just means starting from an empty history — but logged
+        // rather than silently swallowed, since a previous version of
+        // this catch had no visibility into failures at all.
+        console.error("[Veyra] Failed to load chat history", err);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1162,7 +1174,16 @@ export default function RoomPage() {
   };
 
   const handleAdmit = async (requestId: number) => {
-    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    // Deliberately NOT removed from local state until the request
+    // actually succeeds — removing it optimistically meant that any
+    // failed admit call left the card gone locally while the request
+    // was still PENDING in the database, and the join-request polling
+    // fallback (see the effect above) would then re-discover it as a
+    // "new" request a few seconds later, reappearing indefinitely
+    // even though nothing had actually changed. Keeping the card
+    // visible until success is confirmed means a failure just shows an
+    // error and lets the host retry, instead of a confusing
+    // disappear-then-reappear loop.
     try {
       const res = await fetch(`/api/rooms/${token}/join-requests/${requestId}/admit`, { method: "POST", headers: authHeaders() });
       if (!res.ok) {
@@ -1170,15 +1191,21 @@ export default function RoomPage() {
         toast.error(data.error ?? "Couldn't admit that person.");
         return;
       }
+      setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
   };
 
   const handleDeny = async (requestId: number) => {
-    setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    // Same reasoning as handleAdmit above.
     try {
-      await fetch(`/api/rooms/${token}/join-requests/${requestId}/deny`, { method: "POST", headers: authHeaders() });
+      const res = await fetch(`/api/rooms/${token}/join-requests/${requestId}/deny`, { method: "POST", headers: authHeaders() });
+      if (!res.ok) {
+        toast.error("Couldn't deny that request. Check your connection and try again.");
+        return;
+      }
+      setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
     }
