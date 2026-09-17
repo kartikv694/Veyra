@@ -89,20 +89,27 @@ async function sendMail(options: MailOptions) {
 
 /**
  * Formats a scheduled time for display, using the host's timezone when
- * available. Deliberately never throws: an unrecognized/invalid timeZone
- * string (toLocaleString throws RangeError for one) degrades to the
- * timezone-less format instead of aborting the whole email send — a
- * formatting nicety failing shouldn't cost the invite email entirely.
+ * available, with a zone abbreviation (e.g. "GMT+5:30") appended so a
+ * recipient elsewhere isn't misled into reading it as their own local
+ * time. Deliberately never throws.
+ *
+ * Two formatter calls, not one: Intl.DateTimeFormat's `dateStyle`/
+ * `timeStyle` shorthand options cannot be combined with the individual
+ * component options — including `timeZoneName` — per spec; doing so
+ * throws a TypeError unconditionally, regardless of which timezone
+ * string is passed. (This was the actual cause of a previous version of
+ * this function silently failing to send the scheduling email at all —
+ * the throw happened before sendMail() ever ran, and looked like a bad
+ * timezone string when it wasn't one.) So the styled date/time comes
+ * from one formatter, and the abbreviation from a second, minimal one.
  */
 function formatScheduledTime(scheduledAt: Date, timeZone?: string | null): string {
   if (timeZone) {
     try {
-      return scheduledAt.toLocaleString(undefined, {
-        dateStyle: "full",
-        timeStyle: "short",
-        timeZone,
-        timeZoneName: "short",
-      });
+      const main = scheduledAt.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short", timeZone });
+      const parts = new Intl.DateTimeFormat(undefined, { timeZone, timeZoneName: "short", hour: "numeric" }).formatToParts(scheduledAt);
+      const abbr = parts.find((p) => p.type === "timeZoneName")?.value;
+      return abbr ? `${main} ${abbr}` : main;
     } catch (err) {
       console.error(`Invalid timezone "${timeZone}" formatting scheduled time — falling back:`, err);
     }
