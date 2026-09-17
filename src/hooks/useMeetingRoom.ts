@@ -88,6 +88,9 @@ export interface MeetingRoomCallbacks {
   onJoinRequest?: (request: { requestId: number; userId: number; name: string }) => void;
   onPeerJoined?: (peer: { socketId: string; userId: number; name: string; isHost?: boolean; isMuted?: boolean; isCameraOff?: boolean }) => void;
   onPeerLeft?: (peer: { socketId: string; userId: number }) => void;
+  /** The host changed the shared "tiles per screen" setting — applies to
+   *  everyone, including the host's own other tabs/devices. */
+  onLayoutSettings?: (maxVisibleTiles: number) => void;
 }
 
 const ICE_SERVERS: RTCConfiguration = {
@@ -526,6 +529,10 @@ export function useMeetingRoom(
       callbacksRef.current.onReaction?.(emoji, name);
     });
 
+    socket.on("meeting:layout-settings", ({ maxVisibleTiles }: { maxVisibleTiles: number }) => {
+      callbacksRef.current.onLayoutSettings?.(maxVisibleTiles);
+    });
+
     socket.on(
       "peer:chat-message",
       ({ text, name, userId, at }: { text: string; name: string; userId: number; at: number }) => {
@@ -733,7 +740,7 @@ export function useMeetingRoom(
   const addScreenShareTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
     Object.values(pcsRef.current).forEach((pc) => {
       const sender = pc.addTrack(track, stream);
-      tuneSender(sender, "video", true);
+      tuneSender(sender, track.kind === "audio" ? "audio" : "video", true);
     });
   }, []);
 
@@ -755,6 +762,13 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:screen-share-state", { sharing });
   }, []);
 
+  /** Host-only in practice (the server drops it from anyone else) —
+   *  pushes the chosen "tiles per screen" setting to everyone in the
+   *  room, including the host's own other tabs/devices. */
+  const broadcastLayoutSettings = useCallback((maxVisibleTiles: number) => {
+    socketRef.current?.emit("host:layout-settings", { maxVisibleTiles });
+  }, []);
+
   return {
     peers: Object.values(peers),
     connected,
@@ -766,5 +780,6 @@ export function useMeetingRoom(
     broadcastHandRaise,
     sendReaction,
     sendChatMessage,
+    broadcastLayoutSettings,
   };
 }

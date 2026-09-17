@@ -41,6 +41,9 @@ interface ControlBarProps {
   onToggleCamera: () => void;
   onToggleParticipants: () => void;
   onScreenShareClick: () => void;
+  /** Switches the shared source without a normal "stop then manually
+   *  restart" — only relevant while already sharing. */
+  onPresentSomethingElse?: () => void;
   /** Whether you're currently sharing your screen — highlights the button. */
   sharingScreen?: boolean;
   /** Whether your own hand is currently raised — highlights the button. */
@@ -102,6 +105,7 @@ export function ControlBar({
   onToggleCamera,
   onToggleParticipants,
   onScreenShareClick,
+  onPresentSomethingElse,
   sharingScreen = false,
   handRaised = false,
   onToggleHandRaise,
@@ -115,6 +119,7 @@ export function ControlBar({
   onTools,
 }: ControlBarProps) {
   const [reactionsOpen, setReactionsOpen] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
 
   return (
     <>
@@ -155,13 +160,42 @@ export function ControlBar({
             {cameraOn ? <Video size={21} /> : <VideoOff size={21} />}
           </ControlButton>
 
-          <ControlButton
-            onClick={onScreenShareClick}
-            label={sharingScreen ? "Stop sharing your screen" : "Share screen"}
-            active={sharingScreen}
-          >
-            <ScreenShare size={20} />
-          </ControlButton>
+          <div className="relative">
+            <ControlButton
+              onClick={() => (sharingScreen ? setShareMenuOpen((v) => !v) : onScreenShareClick())}
+              label={sharingScreen ? "Presenting options" : "Share screen"}
+              active={sharingScreen}
+            >
+              <ScreenShare size={20} />
+            </ControlButton>
+            {shareMenuOpen && createPortal(
+              <div className="pointer-events-none fixed inset-x-0 bottom-20 z-50 flex justify-center px-3 sm:bottom-24">
+                <div className="pointer-events-auto flex min-w-[220px] flex-col overflow-hidden rounded-xl bg-[#2b2c30] py-1.5 shadow-2xl ring-1 ring-white/10">
+                  <button
+                    onClick={() => {
+                      setShareMenuOpen(false);
+                      onPresentSomethingElse?.();
+                    }}
+                    className="flex items-center gap-3 px-4 py-2.5 text-left text-sm text-white hover:bg-white/10"
+                  >
+                    <ScreenShare size={16} className="shrink-0 text-white/70" />
+                    Present something else
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShareMenuOpen(false);
+                      onScreenShareClick();
+                    }}
+                    className="flex items-center gap-3 px-4 py-2.5 text-left text-sm text-red-400 hover:bg-white/10"
+                  >
+                    <ScreenShare size={16} className="shrink-0 text-red-400" />
+                    Stop sharing
+                  </button>
+                </div>
+              </div>,
+              document.body,
+            )}
+          </div>
 
           <div className="relative">
             <ControlButton onClick={() => setReactionsOpen((v) => !v)} label="Reactions" active={reactionsOpen}>

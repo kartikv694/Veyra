@@ -57,35 +57,36 @@ function formatTime(date: Date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Meet caps how many tiles it renders at once and keeps everyone past
+ *  that cap connected in the background (audio/video still flowing,
+ *  just not drawn as a tile) rather than cramming an unreadable number
+ *  of boxes onto one screen. */
+/** Presets the host can pick from in Meeting tools — fewer, bigger tiles
+ *  vs. more, smaller ones, same trade-off Meet's own tile-count control
+ *  offers. The grid still falls back to whatever fits when the actual
+ *  participant count is lower than the chosen cap. */
+const TILE_COUNT_OPTIONS = [4, 9, 16, 25] as const;
+const DEFAULT_MAX_VISIBLE_TILES = 9;
+
 /**
- * Picks the column/row split and per-tile size that fills the most
- * screen area without cropping any tile — the same "biggest possible
- * tiles" approach Meet uses, instead of a fixed grid-cols-N that leaves
- * 3-person and mobile-portrait layouts either cropped or tiny. Tries
- * every possible column count and keeps whichever gives the largest
- * tile area while preserving the target aspect ratio.
+ * Column count for a given number of visible tiles, matching Meet's own
+ * tiled-view breakpoints. This is a fixed lookup, not an aspect-ratio
+ * calculation — Meet fills each cell full-bleed with object-cover
+ * (cropping the camera to fit) rather than shrinking tiles to avoid
+ * cropping, which is what actually produces its edge-to-edge look.
  */
-function computeVideoGrid(count: number, width: number, height: number, aspect = 16 / 9) {
-  if (count <= 0 || width <= 0 || height <= 0) {
-    return { cols: 1, rows: 1, tileWidth: width, tileHeight: height };
-  }
-  let best = { cols: 1, rows: count, tileWidth: 0, tileHeight: 0, area: 0 };
-  for (let cols = 1; cols <= count; cols += 1) {
-    const rows = Math.ceil(count / cols);
-    const cellWidth = width / cols;
-    const cellHeight = height / rows;
-    let tileWidth = cellWidth;
-    let tileHeight = tileWidth / aspect;
-    if (tileHeight > cellHeight) {
-      tileHeight = cellHeight;
-      tileWidth = tileHeight * aspect;
-    }
-    const area = tileWidth * tileHeight;
-    if (area > best.area) {
-      best = { cols, rows, tileWidth, tileHeight, area };
-    }
-  }
-  return best;
+function meetGridColumns(count: number): number {
+  if (count <= 1) return 1;
+  if (count === 2) return 2;
+  if (count === 3) return 3;
+  if (count === 4) return 2;
+  if (count <= 6) return 3;
+  if (count <= 9) return 3;
+  // Beyond Meet's exact small-count breakpoints (which only really apply
+  // up to a 3x3 grid), fall back to a near-square grid — same principle,
+  // just generalized so the larger tile-count presets (16, 25) still lay
+  // out sensibly.
+  return Math.ceil(Math.sqrt(count));
 }
 
 function initials(name: string) {
@@ -226,6 +227,8 @@ function MeetingPanel({
   onToggleCaptions,
   layoutMode,
   onCycleLayout,
+  maxVisibleTiles,
+  onChangeMaxVisibleTiles,
   timerRemaining,
   onStartTimer,
   onStopTimer,
@@ -253,6 +256,8 @@ function MeetingPanel({
   onToggleCaptions: () => void;
   layoutMode: "auto" | "spotlight";
   onCycleLayout: () => void;
+  maxVisibleTiles: number;
+  onChangeMaxVisibleTiles: (value: number) => void;
   timerRemaining: number | null;
   onStartTimer: () => void;
   onStopTimer: () => void;
@@ -416,6 +421,30 @@ function MeetingPanel({
                     <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
                   </button>
                 </div>
+                {layoutMode === "auto" && (
+                  <div className="pt-1">
+                    <p className="text-xs text-white/45">
+                      {viewerIsHost
+                        ? "Tiles per screen — fewer, bigger tiles or more, smaller ones. Anyone past this count stays connected, just off-screen. Applies to everyone."
+                        : "Tiles per screen — set by the host for everyone."}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      {TILE_COUNT_OPTIONS.map((count) => (
+                        <button
+                          key={count}
+                          onClick={() => viewerIsHost && onChangeMaxVisibleTiles(count)}
+                          disabled={!viewerIsHost}
+                          className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${maxVisibleTiles === count
+                            ? "border-accent bg-accent/10 text-white"
+                            : "border-white/10 text-white/55 hover:bg-white/5"
+                            } ${viewerIsHost ? "" : "cursor-default opacity-60 hover:bg-transparent"}`}
+                        >
+                          {count}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-2xl bg-[#2b2c30] p-4 text-sm text-white/55">No add-ons available yet.</div>
@@ -490,21 +519,18 @@ export default function RoomPage() {
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionText, setCaptionText] = useState("");
   const [layoutMode, setLayoutMode] = useState<"auto" | "spotlight">("auto");
-  const gridAreaRef = useRef<HTMLElement | null>(null);
-  const [gridAreaSize, setGridAreaSize] = useState({ width: 0, height: 0 });
-
+  // Meet's own column breakpoints (meetGridColumns) are tuned for desktop
+  // — e.g. 3 columns for 3 people. Applied on a narrow phone screen that
+  // crams each tile into a sliver. Below the sm breakpoint, cap columns
+  // at 2 instead so tiles stay a usable size and rows wrap normally.
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   useEffect(() => {
-    const el = gridAreaRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width, height } = entry.contentRect;
-      setGridAreaSize({ width, height });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    const check = () => setIsNarrowViewport(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
   }, []);
+  const [maxVisibleTiles, setMaxVisibleTiles] = useState(DEFAULT_MAX_VISIBLE_TILES);
 
   const [timerRemaining, setTimerRemaining] = useState<number | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -527,42 +553,38 @@ export default function RoomPage() {
     [router, token],
   );
 
-  // Fallback for "host ends the meeting": the socket push (meeting:ended)
-  // is the fast path, firing immediately. This is the guaranteed path —
-  // without it, a dropped or delayed socket event (which can happen
-  // whenever the signaling connection is unstable) leaves a participant
-  // stuck in an already-ended room with no way to find out, since
-  // nothing else here was actually checking Meeting.endAt despite the
-  // end route's own comment claiming this fallback existed.
-  //
-  // Also reconciles the participants roster on every tick — this is what
-  // fixes a refresh incorrectly showing "left": when a participant
-  // refreshes, their old socket disconnects (broadcasting peer:left)
-  // before their new page has finished reconnecting (broadcasting
-  // peer:joined back). If the backend is at all slow to respond in that
-  // gap — which a cold-starting host is exactly the kind of thing that
-  // causes — that "left" state can visibly linger far longer than it
-  // should. Polling the database (the actual source of truth, where
-  // leftAt gets correctly cleared the moment they rejoin) lets it
-  // self-correct within one tick, independent of socket timing.
+  // Reconciles the participants roster against the database (the actual
+  // source of truth, where leftAt gets correctly cleared the moment
+  // someone rejoins) — both on a 5s poll AND, more importantly, called
+  // directly the instant a peer:joined/peer:left socket event fires (see
+  // the callbacks passed to useMeetingRoom below). That immediate call is
+  // what actually fixes a refresh incorrectly showing someone as "left":
+  // when a participant refreshes, their old socket disconnects
+  // (broadcasting peer:left) before their new page finishes reconnecting
+  // (broadcasting peer:joined back). Waiting for the next 5s poll tick to
+  // self-correct that gap was visibly slow; fetching right away on either
+  // event shrinks it to about as fast as the round trip allows.
+  const refreshRoster = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.meeting?.endAt) {
+        exitMeeting("ended");
+        return;
+      }
+      if (Array.isArray(data.participants)) setParticipants(data.participants);
+    } catch {
+      // Transient network hiccup — the next poll tick (or the next
+      // peer:joined/peer:left event) retries.
+    }
+  }, [token, exitMeeting]);
+
   useEffect(() => {
     if (!joined) return;
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/rooms/${token}`, { headers: authHeaders() });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.meeting?.endAt) {
-          exitMeeting("ended");
-          return;
-        }
-        if (Array.isArray(data.participants)) setParticipants(data.participants);
-      } catch {
-        // Transient network hiccup — the next tick retries.
-      }
-    }, 5000);
+    const id = setInterval(() => void refreshRoster(), 5000);
     return () => clearInterval(id);
-  }, [joined, token, exitMeeting]);
+  }, [joined, refreshRoster]);
 
   // Fallback for join requests reaching the host: join-request:new is the
   // fast path (near-instant when the signaling connection is healthy),
@@ -651,6 +673,7 @@ export default function RoomPage() {
     broadcastHandRaise,
     sendReaction,
     sendChatMessage,
+    broadcastLayoutSettings,
   } = useMeetingRoom(
     token,
     localStream,
@@ -705,9 +728,16 @@ export default function RoomPage() {
             leftAt: null,
           }];
         });
+        // Belt-and-suspenders against a stale peer:left arriving out of
+        // order after this — see refreshRoster's comment above.
+        void refreshRoster();
       },
       onPeerLeft: ({ userId }) => {
         setParticipants((prev) => prev.map((p) => p.userId === userId ? { ...p, leftAt: new Date().toISOString() } : p));
+        // If this "left" was actually just a refresh's old socket closing
+        // (the new one may already be reconnecting), don't wait up to 5s
+        // for the poll to notice they're still here — check right away.
+        void refreshRoster();
       },
       onRemoved: () => {
         exitMeeting("removed");
@@ -720,6 +750,9 @@ export default function RoomPage() {
       },
       onChatMessage: (msg) => {
         setChatMessages((prev) => [...prev, { id: `${msg.at}-${msg.fromUserId}-${Math.random()}`, ...msg }]);
+      },
+      onLayoutSettings: (value) => {
+        setMaxVisibleTiles(value);
       },
     },
     joined,
@@ -1165,9 +1198,9 @@ export default function RoomPage() {
   }, [peerCount, connected, micOn, cameraOn, broadcastMediaState]);
 
   const stopScreenShare = useCallback(() => {
-    const track = screenStreamRef.current?.getVideoTracks()[0];
-    if (track) removeScreenShareTrack(track);
-    screenStreamRef.current?.getTracks().forEach((t) => t.stop());
+    const tracks = screenStreamRef.current?.getTracks() ?? [];
+    tracks.forEach((t) => removeScreenShareTrack(t));
+    tracks.forEach((t) => t.stop());
     screenStreamRef.current = null;
     setSharingScreen(false);
     setScreenStream(null);
@@ -1184,11 +1217,20 @@ export default function RoomPage() {
       // it can't be selected. Ignored harmlessly on browsers that don't
       // support the option, which is why the warning dialog before this
       // call still exists as a fallback for those.
+      //
+      // audio: true is what makes Chrome/Edge offer the "Share tab audio"
+      // checkbox at all when the person picks a Chrome Tab in the native
+      // picker — without requesting it here, that option never appears.
+      // It's ignored (no audio track comes back) for Window/Entire Screen
+      // sources, which is a browser limitation, not something this app
+      // controls.
       const display = await navigator.mediaDevices.getDisplayMedia({
         video: true,
+        audio: true,
         selfBrowserSurface: "exclude",
       } as DisplayMediaStreamOptions);
       const screenTrack = display.getVideoTracks()[0];
+      const screenAudioTrack = display.getAudioTracks()[0] ?? null;
       screenStreamRef.current = display;
       setSharingScreen(true);
       setScreenStream(display);
@@ -1198,13 +1240,23 @@ export default function RoomPage() {
       // showing normally alongside it, instead of your screen taking
       // over your camera's slot.
       addScreenShareTrack(screenTrack, display);
+      if (screenAudioTrack) addScreenShareTrack(screenAudioTrack, display);
       broadcastScreenShareState(true);
       // The browser's own native "Stop sharing" control also needs to revert us.
       screenTrack.onended = stopScreenShare;
-      toast.success("Sharing your screen.");
+      toast.success(screenAudioTrack ? "Sharing your screen, with audio." : "Sharing your screen.");
     } catch {
       // Picker cancelled, or permission denied — not worth an error toast.
     }
+  };
+
+  // "Present something else" from the control bar's presenting menu —
+  // cleanly tears down the current share and immediately reopens the
+  // picker for a new source, instead of the person having to stop, close
+  // the menu, and click Share screen again themselves.
+  const presentSomethingElse = () => {
+    stopScreenShare();
+    void startScreenShare();
   };
 
   const handleScreenShareClick = () => {
@@ -1565,8 +1617,14 @@ export default function RoomPage() {
 
         <div className="flex items-center gap-2 sm:gap-3">
           {sharingScreen && (
-            <div className="flex items-center gap-2 rounded-full bg-white/[0.06] pl-3 pr-1 py-1">
+            <div className="hidden items-center gap-2 rounded-full bg-white/[0.06] pl-3 pr-1 py-1 sm:flex">
               <span className="text-xs font-medium text-white/85">You&apos;re presenting</span>
+              <button
+                onClick={presentSomethingElse}
+                className="rounded-full px-3 py-1.5 text-xs font-medium text-white/75 hover:bg-white/10 hover:text-white"
+              >
+                Present something else
+              </button>
               <button
                 onClick={handleScreenShareClick}
                 className="rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90"
@@ -1582,55 +1640,48 @@ export default function RoomPage() {
         </div>
       </header>
 
-      <main ref={gridAreaRef} className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
+      <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
         {presentingStream ? (
-          <>
-            {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
-            <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} fit="contain" />
-            {/* Floating camera thumbnails — fixed pixel size, absolutely
-                positioned, intentionally NOT part of any flex/percentage-height
-                chain. Earlier attempts using a flex strip for this kept
-                breaking (collapsing to full size or disappearing) because
-                percentage heights through several nested flex layers are
-                fragile; a fixed-size floating box sidesteps that entirely.
-                Shows everyone's camera — including the presenter's own,
-                and mine, regardless of who's presenting — matching Meet,
-                which keeps every camera visible as a small tile even
-                while someone's screen is the main view. */}
-            <div
-              className="absolute bottom-4 right-4 z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
-            >
-              <VideoTile
-                name={`${me.name ?? me.email} (You)`}
-                isHost={myRow?.isHost ?? false}
-                isMuted={!micOn}
-                cameraOn={cameraOn}
-                stream={localStream}
-                isLocal
-                mirrored
-                handRaised={handRaised}
-              />
+          // Meet-style presenting layout: the shared content takes the
+          // main area, and every camera (including the presenter's own)
+          // lines up in a strip alongside it — a vertical column on
+          // larger screens, a horizontal scrollable row along the bottom
+          // on narrow ones. Unlike the old floating-thumbnail approach
+          // this isn't capped at 3 people — the strip just scrolls.
+          <div className="flex h-full w-full flex-col gap-2 sm:flex-row sm:gap-3">
+            <div className="min-h-0 flex-1">
+              <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} fit="contain" isLocal={sharingScreen} />
             </div>
-            {others.slice(0, 3).map((participant, i) => {
-              const live = liveByUserId.get(participant.userId);
-              return (
-                <div
-                  key={participant.userId}
-                  className="absolute z-10 h-28 w-44 overflow-hidden rounded-lg shadow-2xl ring-1 ring-white/10 sm:h-32 sm:w-52"
-                  style={{ bottom: 16, right: 16 + (i + 1) * 184 }}
-                >
-                  <VideoTile
-                    name={participant.name}
-                    isHost={participant.isHost}
-                    isMuted={live ? !live.micOn : participant.isMuted}
-                    cameraOn={live ? live.cameraOn : false}
-                    stream={live?.stream ?? null}
-                    handRaised={live?.handRaised ?? false}
-                  />
-                </div>
-              );
-            })}
-          </>
+            <div className="flex h-24 shrink-0 gap-2 overflow-x-auto sm:h-full sm:w-64 sm:flex-col sm:gap-3 sm:overflow-y-auto sm:overflow-x-visible">
+              <div className="aspect-video h-full shrink-0 sm:aspect-auto sm:w-full sm:min-h-[110px] sm:flex-1">
+                <VideoTile
+                  name={`${me.name ?? me.email} (You)`}
+                  isHost={myRow?.isHost ?? false}
+                  isMuted={!micOn}
+                  cameraOn={cameraOn}
+                  stream={localStream}
+                  isLocal
+                  mirrored
+                  handRaised={handRaised}
+                />
+              </div>
+              {others.map((participant) => {
+                const live = liveByUserId.get(participant.userId);
+                return (
+                  <div key={participant.userId} className="aspect-video h-full shrink-0 sm:aspect-auto sm:w-full sm:min-h-[110px] sm:flex-1">
+                    <VideoTile
+                      name={participant.name}
+                      isHost={participant.isHost}
+                      isMuted={live ? !live.micOn : participant.isMuted}
+                      cameraOn={live ? live.cameraOn : false}
+                      stream={live?.stream ?? null}
+                      handRaised={live?.handRaised ?? false}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ) : totalTiles === 1 ? (
           // Solo view — a real 16:9 box centered in the available space,
           // matching the camera's own requested aspect ratio (see the
@@ -1719,48 +1770,71 @@ export default function RoomPage() {
             </div>
           </div>
         ) : (
-          <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-2 sm:gap-3">
-            {(() => {
-              const layout = computeVideoGrid(totalTiles, gridAreaSize.width, gridAreaSize.height);
-              // Before the first ResizeObserver tick fires, fall back to a
-              // reasonable aspect-ratio box instead of a zero-size flash.
-              const tileStyle =
-                layout.tileWidth > 0
-                  ? { width: `${layout.tileWidth}px`, height: `${layout.tileHeight}px` }
-                  : { width: "45%", aspectRatio: "16 / 9" as const };
-              return (
-                <>
-                  <div style={tileStyle}>
-                    <VideoTile
-                      name={`${me.name ?? me.email} (You)`}
-                      isHost={myRow?.isHost ?? false}
-                      isMuted={!micOn}
-                      cameraOn={cameraOn}
-                      stream={localStream}
-                      isLocal
-                      mirrored
-                      handRaised={handRaised}
-                    />
+          (() => {
+            const meTile = {
+              key: "me",
+              node: (
+                <VideoTile
+                  name={`${me.name ?? me.email} (You)`}
+                  isHost={myRow?.isHost ?? false}
+                  isMuted={!micOn}
+                  cameraOn={cameraOn}
+                  stream={localStream}
+                  isLocal
+                  mirrored
+                  handRaised={handRaised}
+                  rounded={false}
+                />
+              ),
+            };
+            const otherTiles = others.map((participant) => {
+              const live = liveByUserId.get(participant.userId);
+              return {
+                key: String(participant.userId),
+                node: (
+                  <VideoTile
+                    name={participant.name}
+                    isHost={participant.isHost}
+                    isMuted={live ? !live.micOn : participant.isMuted}
+                    cameraOn={live ? live.cameraOn : false}
+                    stream={live?.stream ?? null}
+                    handRaised={live?.handRaised ?? false}
+                    rounded={false}
+                  />
+                ),
+              };
+            });
+            const allTiles = [meTile, ...otherTiles];
+            // Cap at maxVisibleTiles (host-adjustable, default 9),
+            // exactly like Meet's own tiled view: past that, people stay
+            // fully connected — audio, video, the participant list —
+            // just not drawn as a tile, with a "+N more" cell standing
+            // in for them instead of the grid silently overflowing or
+            // shrinking tiles unreadably.
+            const overflowCount = Math.max(0, allTiles.length - maxVisibleTiles);
+            const visibleTiles = overflowCount > 0 ? allTiles.slice(0, maxVisibleTiles - 1) : allTiles;
+            const cellCount = visibleTiles.length + (overflowCount > 0 ? 1 : 0);
+            const cols = isNarrowViewport ? Math.min(2, cellCount) : meetGridColumns(cellCount);
+
+            return (
+              <div
+                className="absolute inset-0 grid auto-rows-fr gap-1 sm:gap-1.5"
+                style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+              >
+                {visibleTiles.map((tile) => (
+                  <div key={tile.key} className="min-h-0 min-w-0">
+                    {tile.node}
                   </div>
-                  {others.map((participant) => {
-                    const live = liveByUserId.get(participant.userId);
-                    return (
-                      <div key={participant.userId} style={tileStyle}>
-                        <VideoTile
-                          name={participant.name}
-                          isHost={participant.isHost}
-                          isMuted={live ? !live.micOn : participant.isMuted}
-                          cameraOn={live ? live.cameraOn : false}
-                          stream={live?.stream ?? null}
-                          handRaised={live?.handRaised ?? false}
-                        />
-                      </div>
-                    );
-                  })}
-                </>
-              );
-            })()}
-          </div>
+                ))}
+                {overflowCount > 0 && (
+                  <div className="flex flex-col items-center justify-center gap-1 bg-[#171A21] text-white">
+                    <span className="text-2xl font-semibold">+{overflowCount}</span>
+                    <span className="text-xs text-white/60">more in this meeting</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()
         )}
 
         {captionsOn && (
@@ -1921,6 +1995,7 @@ export default function RoomPage() {
         onToggleCamera={toggleCamera}
         onToggleParticipants={() => setActivePanel("people")}
         onScreenShareClick={handleScreenShareClick}
+        onPresentSomethingElse={presentSomethingElse}
         sharingScreen={sharingScreen}
         handRaised={handRaised}
         onToggleHandRaise={handleToggleHandRaise}
@@ -1969,6 +2044,8 @@ export default function RoomPage() {
         onToggleCaptions={toggleCaptions}
         layoutMode={layoutMode}
         onCycleLayout={cycleLayout}
+        maxVisibleTiles={maxVisibleTiles}
+        onChangeMaxVisibleTiles={broadcastLayoutSettings}
         timerRemaining={timerRemaining}
         onStartTimer={startTimer}
         onStopTimer={stopTimer}
