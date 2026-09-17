@@ -7,7 +7,7 @@
  * gives every participant a live speaking indicator without sending audio
  * levels through Socket.IO.
  */
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AudioWaveform, Hand, MicOff } from "lucide-react";
 
 interface VideoTileProps {
@@ -79,6 +79,51 @@ function VideoTile({
   fit = "cover",
 }: VideoTileProps) {
   const [speaking, setSpeaking] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const attachStream = useCallback((video: HTMLVideoElement | null, s: MediaStream | null, local: boolean) => {
+    if (!video || !s) return;
+    if (video.srcObject !== s) video.srcObject = s;
+    if (!local) void video.play().catch(() => undefined);
+  }, []);
+
+  // A callback ref, not a plain useRef+effect: the <video> element only
+  // exists in the DOM while `cameraOn && stream` is true (see the
+  // conditional render below), so it can mount well AFTER `stream` and
+  // `isLocal` were already stable — e.g. the camera finishes turning on
+  // a moment after the stream itself was set. A useEffect gated on
+  // [stream, isLocal] would have already run and bailed out (no element
+  // yet) by that point, and never fire again since neither dep changed —
+  // leaving srcObject unset and the tile permanently blank. A callback
+  // ref instead fires on every single mount, regardless of whether any
+  // prop "changed", which is exactly the guarantee needed here.
+  const setVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      attachStream(el, stream, isLocal);
+    },
+    [attachStream, stream, isLocal],
+  );
+
+  // Covers the other half of this: a peer's MediaStream can exist — and
+  // already be the same object reference — before its video track has
+  // actually arrived (the audio track often connects first). When the
+  // video track gets added to that SAME stream object afterward, the
+  // reference never changes, so neither the callback ref above (which
+  // only fires on mount/unmount) nor a plain identity check would notice.
+  // Listening for the stream's own addtrack/removetrack events catches
+  // exactly that case, re-attaching once the track is actually there.
+  useEffect(() => {
+    attachStream(videoRef.current, stream, isLocal);
+    if (!stream) return;
+    const handler = () => attachStream(videoRef.current, stream, isLocal);
+    stream.addEventListener("addtrack", handler);
+    stream.addEventListener("removetrack", handler);
+    return () => {
+      stream.removeEventListener("addtrack", handler);
+      stream.removeEventListener("removetrack", handler);
+    };
+  }, [stream, isLocal, attachStream]);
 
   useEffect(() => {
     if (!stream || isMuted || stream.getAudioTracks().length === 0) {
@@ -153,12 +198,7 @@ function VideoTile({
           autoPlay
           muted={isLocal}
           playsInline
-          ref={(el) => {
-            if (el && el.srcObject !== stream) {
-              el.srcObject = stream;
-              if (!isLocal) void el.play().catch(() => undefined);
-            }
-          }}
+          ref={setVideoRef}
           className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"} ${mirrored ? "-scale-x-100" : ""}`}
         />
       ) : (

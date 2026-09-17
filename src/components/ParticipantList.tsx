@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Crown, Mic, MicOff, UserX, Video, VideoOff, X } from "lucide-react";
+import { useState } from "react";
+import { Check, Crown, Mic, MicOff, UserPlus, UserX, Video, VideoOff, X } from "lucide-react";
 
 export interface ParticipantRow {
   userId: number;
@@ -89,6 +90,12 @@ interface ParticipantListProps {
   pendingRequests?: { id: number; userId: number; name: string; requestedAt: string }[];
   onAdmit?: (requestId: number) => void;
   onDeny?: (requestId: number) => void;
+  /** Host-only: lets someone invite a person mid-meeting, after the
+   *  initial "Your meeting's ready" card has already been dismissed. */
+  inviteInput?: string;
+  setInviteInput?: (value: string) => void;
+  inviting?: boolean;
+  onInvite?: () => void;
 }
 
 function initials(name: string): string {
@@ -115,7 +122,12 @@ export function ParticipantList({
   pendingRequests = [],
   onAdmit,
   onDeny,
+  inviteInput = "",
+  setInviteInput,
+  inviting = false,
+  onInvite,
 }: ParticipantListProps) {
+  const [showInvite, setShowInvite] = useState(false);
   if (!open) return null;
 
   const active = participants.filter((p) => !p.leftAt);
@@ -138,6 +150,41 @@ export function ParticipantList({
       </div>
 
       <div className="px-5 pb-3 text-sm text-white/60">{active.length} in this meeting</div>
+
+      {viewerIsHost && (
+        <div className="mx-3 mb-3">
+          <button
+            onClick={() => setShowInvite((v) => !v)}
+            className="flex items-center gap-2 rounded-full bg-accent px-3.5 py-2 text-xs font-semibold text-white hover:opacity-90"
+          >
+            <UserPlus size={14} /> Invite
+          </button>
+          {showInvite && (
+            <div className="mt-2 flex gap-2">
+              <input
+                autoFocus
+                value={inviteInput}
+                onChange={(e) => setInviteInput?.(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onInvite?.();
+                  }
+                }}
+                placeholder="name@example.com, another@example.com"
+                className="min-w-0 flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30"
+              />
+              <button
+                onClick={() => onInvite?.()}
+                disabled={inviting || !inviteInput.trim()}
+                className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {inviting ? "..." : "Invite"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {viewerIsHost && pendingRequests.length > 0 && (
         <div className="mx-3 mb-3 rounded-2xl border border-white/10 bg-[#2b2c30] p-3">

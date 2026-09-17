@@ -89,6 +89,21 @@ function meetGridColumns(count: number): number {
   return Math.ceil(Math.sqrt(count));
 }
 
+/**
+ * Mobile gets its own column count instead of just capping meetGridColumns
+ * at 2. The desktop 2-column case (side by side) is fine on a wide
+ * screen, but on a tall narrow phone screen, 2 full-height side-by-side
+ * columns makes each cell extremely tall and narrow — object-cover then
+ * has to crop most of a 16:9 camera feed's top and bottom to fill that
+ * shape, cutting off foreheads/chins. Stacking 2 people in a single
+ * column (2 full-width rows) keeps each cell much closer to a normal
+ * landscape shape instead.
+ */
+function mobileGridColumns(count: number): number {
+  if (count <= 2) return 1;
+  return 2;
+}
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -221,6 +236,10 @@ function MeetingPanel({
   pendingRequests,
   onAdmit,
   onDeny,
+  inviteInput,
+  setInviteInput,
+  inviting,
+  handleInvite,
   message,
   setMessage,
   captionsOn,
@@ -250,6 +269,10 @@ function MeetingPanel({
   pendingRequests: { id: number; userId: number; name: string; requestedAt: string }[];
   onAdmit: (requestId: number) => void;
   onDeny: (requestId: number) => void;
+  inviteInput: string;
+  setInviteInput: (value: string) => void;
+  inviting: boolean;
+  handleInvite: () => Promise<void>;
   message: string;
   setMessage: (value: string) => void;
   captionsOn: boolean;
@@ -286,6 +309,10 @@ function MeetingPanel({
           pendingRequests={pendingRequests}
           onAdmit={onAdmit}
           onDeny={onDeny}
+          inviteInput={inviteInput}
+          setInviteInput={setInviteInput}
+          inviting={inviting}
+          onInvite={() => void handleInvite()}
         />
       )}
 
@@ -1814,7 +1841,7 @@ export default function RoomPage() {
             const overflowCount = Math.max(0, allTiles.length - maxVisibleTiles);
             const visibleTiles = overflowCount > 0 ? allTiles.slice(0, maxVisibleTiles - 1) : allTiles;
             const cellCount = visibleTiles.length + (overflowCount > 0 ? 1 : 0);
-            const cols = isNarrowViewport ? Math.min(2, cellCount) : meetGridColumns(cellCount);
+            const cols = isNarrowViewport ? mobileGridColumns(cellCount) : meetGridColumns(cellCount);
 
             return (
               <div
@@ -2038,6 +2065,10 @@ export default function RoomPage() {
         pendingRequests={pendingRequests}
         onAdmit={handleAdmit}
         onDeny={handleDeny}
+        inviteInput={inviteInput}
+        setInviteInput={setInviteInput}
+        inviting={inviting}
+        handleInvite={handleInvite}
         message={message}
         setMessage={setMessage}
         captionsOn={captionsOn}

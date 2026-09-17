@@ -58,6 +58,15 @@ export interface RemotePeer {
    *  a "screen share", which corrupted both slots. Track identity is
    *  what's actually stable here. */
   cameraTrackId: string | null;
+  /** Same idea as cameraTrackId, but for audio: the track id of this
+   *  peer's mic, established the first time we ever see an audio track
+   *  from them. Needed once a screen share can carry its own "share tab
+   *  audio" track (see startScreenShare) — without this, any second,
+   *  genuinely different audio track (the tab's audio) would silently
+   *  overwrite `stream` (their camera) instead of joining `screenStream`,
+   *  which is what caused a participant's camera tile to show the
+   *  presenter's shared screen. */
+  cameraAudioTrackId: string | null;
   micOn: boolean;
   cameraOn: boolean;
   handRaised: boolean;
@@ -277,17 +286,23 @@ export function useMeetingRoom(
               stream: null,
               screenStream: null,
               cameraTrackId: null,
+              cameraAudioTrackId: null,
               micOn: true,
               cameraOn: true,
               handRaised: false,
             } satisfies RemotePeer);
 
-          // Audio has no screen-share equivalent here (getDisplayMedia is
-          // requested video-only — see startScreenShare) — any audio
-          // track always belongs to the camera stream, no identification
-          // needed.
+          // Same identity-based classification as the video branch below,
+          // now applied to audio too: a screen share can carry its own
+          // "share tab audio" track (see startScreenShare), so a second,
+          // genuinely different audio track id is that tab audio, not a
+          // second microphone — route it to screenStream instead of
+          // overwriting the camera's audio in `stream`.
           if (!isVideo) {
-            return { ...prev, [socketId]: { ...existing, stream: incomingStream } };
+            if (!existing.cameraAudioTrackId || incomingTrackId === existing.cameraAudioTrackId) {
+              return { ...prev, [socketId]: { ...existing, stream: incomingStream, cameraAudioTrackId: incomingTrackId } };
+            }
+            return { ...prev, [socketId]: { ...existing, screenStream: incomingStream } };
           }
 
           // The first VIDEO track we ever see for a peer is their camera
@@ -316,7 +331,7 @@ export function useMeetingRoom(
       peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(meta.isHost), isMuted: Boolean(meta.isMuted), isCameraOff: Boolean(meta.isCameraOff) },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, cameraAudioTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(meta.isHost), isMuted: Boolean(meta.isMuted), isCameraOff: Boolean(meta.isCameraOff) },
       }));
       return pc;
     },
@@ -413,7 +428,7 @@ export function useMeetingRoom(
       peerUsersRef.current[socketId] = userId;
       setPeers((prev) => ({
         ...prev,
-        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(isHost), isMuted: Boolean(isMuted), isCameraOff: Boolean(isCameraOff) },
+        [socketId]: prev[socketId] ?? { socketId, userId, name, stream: null, screenStream: null, cameraTrackId: null, cameraAudioTrackId: null, micOn: true, cameraOn: true, handRaised: false, isHost: Boolean(isHost), isMuted: Boolean(isMuted), isCameraOff: Boolean(isCameraOff) },
       }));
       callbacksRef.current.onPeerJoined?.({ socketId, userId, name, isHost, isMuted, isCameraOff });
     });
