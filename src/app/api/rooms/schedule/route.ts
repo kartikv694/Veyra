@@ -10,6 +10,10 @@ export const runtime = "nodejs";
 const scheduleSchema = z.object({
   scheduledAt: z.string().datetime({ offset: true }),
   emails: z.array(z.string().email()).max(50).default([]),
+  // IANA zone name (e.g. "Asia/Kolkata"), captured client-side via
+  // Intl.DateTimeFormat().resolvedOptions().timeZone — see the
+  // Meeting.timeZone schema comment for why this needs to be stored.
+  timeZone: z.string().max(100).optional(),
 });
 
 /** Creates a future meeting, optionally adds email addresses to its invite
@@ -37,10 +41,11 @@ export async function POST(req: NextRequest) {
   }
 
   const token = await createUniqueRoomToken();
-  const rows = await prisma.$queryRaw<Array<{ id: number; token: string; createdAt: Date; hostId: number; scheduledAt: Date }>>`
-    INSERT INTO "Meeting" ("token", "hostId", "createdAt", "updatedAt", "scheduledAt")
-    VALUES (${token}, ${auth.sub}, NOW(), NOW(), ${scheduledAt})
-    RETURNING "id", "token", "createdAt", "hostId", "scheduledAt"
+  const timeZone = parsed.data.timeZone ?? null;
+  const rows = await prisma.$queryRaw<Array<{ id: number; token: string; createdAt: Date; hostId: number; scheduledAt: Date; timeZone: string | null }>>`
+    INSERT INTO "Meeting" ("token", "hostId", "createdAt", "updatedAt", "scheduledAt", "timeZone")
+    VALUES (${token}, ${auth.sub}, NOW(), NOW(), ${scheduledAt}, ${timeZone})
+    RETURNING "id", "token", "createdAt", "hostId", "scheduledAt", "timeZone"
   `;
   const meeting = rows[0];
 
@@ -67,7 +72,7 @@ export async function POST(req: NextRequest) {
   const failedEmails: string[] = [];
   if (emails.length) {
     const results = await Promise.allSettled(
-      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt })),
+      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt, timeZone: meeting.timeZone })),
     );
     results.forEach((result, i) => {
       if (result.status === "rejected") {

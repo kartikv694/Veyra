@@ -125,7 +125,11 @@ export default function DashboardPage() {
       const res = await fetch("/api/rooms/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ scheduledAt: scheduledAt.toISOString(), emails }),
+        body: JSON.stringify({
+          scheduledAt: scheduledAt.toISOString(),
+          emails,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {

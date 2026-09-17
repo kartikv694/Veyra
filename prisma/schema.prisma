@@ -123,6 +123,17 @@ model Meeting {
   /// Null means the meeting is available immediately.
   scheduledAt DateTime?
 
+  /// The IANA timezone (e.g. "Asia/Kolkata") the host was in when they
+  /// picked `scheduledAt`. `scheduledAt` itself is a correct absolute
+  /// instant regardless — Date objects always are — but formatting it
+  /// back into readable text (the scheduling confirmation email, "Scheduled
+  /// for ...") needs to know which zone to render it in, since a server
+  /// process's own default zone (UTC on Vercel) is not the host's. Null
+  /// for meetings scheduled before this field existed, and for
+  /// non-scheduled ("start now") meetings, which have no scheduledAt to
+  /// format in the first place.
+  timeZone String?
+
   /// When the meeting ended. `null` while the meeting is still live/open;
   /// set once the host ends it or the room is otherwise closed.
   endAt DateTime?

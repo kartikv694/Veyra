@@ -93,9 +93,19 @@ export async function sendMeetingInviteEmail(args: {
   hostEmail?: string;
   meetingUrl: string;
   scheduledAt?: Date | null;
+  /** IANA zone (e.g. "Asia/Kolkata") the host was in when they picked
+   *  scheduledAt — see the Meeting.timeZone schema comment. Without this,
+   *  toLocaleString falls back to the server process's own default zone
+   *  (UTC on Vercel), which silently renders the right instant as the
+   *  wrong wall-clock time for everyone reading the email. */
+  timeZone?: string | null;
 }) {
   const when = args.scheduledAt
-    ? args.scheduledAt.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" })
+    ? args.scheduledAt.toLocaleString(undefined, {
+        dateStyle: "full",
+        timeStyle: "short",
+        ...(args.timeZone ? { timeZone: args.timeZone, timeZoneName: "short" as const } : {}),
+      })
     : "now";
 
   const subject = args.scheduledAt ? `${args.hostName} scheduled a Veyra meeting` : `${args.hostName} invited you to a Veyra meeting`;
