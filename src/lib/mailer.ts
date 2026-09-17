@@ -87,6 +87,29 @@ async function sendMail(options: MailOptions) {
   });
 }
 
+/**
+ * Formats a scheduled time for display, using the host's timezone when
+ * available. Deliberately never throws: an unrecognized/invalid timeZone
+ * string (toLocaleString throws RangeError for one) degrades to the
+ * timezone-less format instead of aborting the whole email send — a
+ * formatting nicety failing shouldn't cost the invite email entirely.
+ */
+function formatScheduledTime(scheduledAt: Date, timeZone?: string | null): string {
+  if (timeZone) {
+    try {
+      return scheduledAt.toLocaleString(undefined, {
+        dateStyle: "full",
+        timeStyle: "short",
+        timeZone,
+        timeZoneName: "short",
+      });
+    } catch (err) {
+      console.error(`Invalid timezone "${timeZone}" formatting scheduled time — falling back:`, err);
+    }
+  }
+  return scheduledAt.toLocaleString(undefined, { dateStyle: "full", timeStyle: "short" });
+}
+
 export async function sendMeetingInviteEmail(args: {
   to: string;
   hostName: string;
@@ -100,13 +123,7 @@ export async function sendMeetingInviteEmail(args: {
    *  wrong wall-clock time for everyone reading the email. */
   timeZone?: string | null;
 }) {
-  const when = args.scheduledAt
-    ? args.scheduledAt.toLocaleString(undefined, {
-        dateStyle: "full",
-        timeStyle: "short",
-        ...(args.timeZone ? { timeZone: args.timeZone, timeZoneName: "short" as const } : {}),
-      })
-    : "now";
+  const when = args.scheduledAt ? formatScheduledTime(args.scheduledAt, args.timeZone) : "now";
 
   const subject = args.scheduledAt ? `${args.hostName} scheduled a Veyra meeting` : `${args.hostName} invited you to a Veyra meeting`;
   const text = args.scheduledAt
