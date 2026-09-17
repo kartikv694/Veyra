@@ -17,6 +17,7 @@ import {
   MicOff,
   LayoutGrid,
   Hand,
+  Search,
   Send,
   Timer,
   UserPlus,
@@ -25,7 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { BrandLink } from "@/components/BrandLink";
-import { toast, confirmToast } from "@/lib/toast";
+import { toast, confirmToast, promptToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
 import { ParticipantList, type ParticipantRow } from "@/components/ParticipantList";
@@ -56,6 +57,37 @@ function formatTime(date: Date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Picks the column/row split and per-tile size that fills the most
+ * screen area without cropping any tile — the same "biggest possible
+ * tiles" approach Meet uses, instead of a fixed grid-cols-N that leaves
+ * 3-person and mobile-portrait layouts either cropped or tiny. Tries
+ * every possible column count and keeps whichever gives the largest
+ * tile area while preserving the target aspect ratio.
+ */
+function computeVideoGrid(count: number, width: number, height: number, aspect = 16 / 9) {
+  if (count <= 0 || width <= 0 || height <= 0) {
+    return { cols: 1, rows: 1, tileWidth: width, tileHeight: height };
+  }
+  let best = { cols: 1, rows: count, tileWidth: 0, tileHeight: 0, area: 0 };
+  for (let cols = 1; cols <= count; cols += 1) {
+    const rows = Math.ceil(count / cols);
+    const cellWidth = width / cols;
+    const cellHeight = height / rows;
+    let tileWidth = cellWidth;
+    let tileHeight = tileWidth / aspect;
+    if (tileHeight > cellHeight) {
+      tileHeight = cellHeight;
+      tileWidth = tileHeight * aspect;
+    }
+    const area = tileWidth * tileHeight;
+    if (area > best.area) {
+      best = { cols, rows, tileWidth, tileHeight, area };
+    }
+  }
+  return best;
+}
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -76,12 +108,94 @@ function ReadyMeetingCard({
     await navigator.clipboard.writeText(link); setLinkCopied(true); toast.success("Link copied.");
     window.setTimeout(() => setLinkCopied(false), 1500);
   };
+
+  const [showContacts, setShowContacts] = useState(false);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [contacts, setContacts] = useState<{ id: number; name: string | null; email: string }[]>([]);
+  const [contactQuery, setContactQuery] = useState("");
+
+  const inviteEmails = inviteInput.split(/[,\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+
+  const filteredContacts = (() => {
+    const q = contactQuery.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter(
+      (contact) => contact.email.toLowerCase().includes(q) || (contact.name ?? "").toLowerCase().includes(q),
+    );
+  })();
+
+  const toggleContacts = async () => {
+    const next = !showContacts;
+    setShowContacts(next);
+    if (!next) return;
+    setContactQuery("");
+    setLoadingContacts(true);
+    try {
+      const res = await fetch("/api/contacts", { headers: authHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setContacts(data.contacts ?? []);
+    } catch {
+      // Non-critical — the manual "Invite by email" field below still works.
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  const addContactEmail = (email: string) => {
+    const lower = email.trim().toLowerCase();
+    if (inviteEmails.includes(lower)) return;
+    setInviteInput(inviteEmails.length ? `${inviteInput.replace(/[,\s]+$/, "")}, ${lower}` : lower);
+  };
+
   return (
     <div className="fixed left-4 top-16 z-[70] w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-[#202124] p-5 text-white shadow-2xl sm:left-6 sm:top-20">
       <div className="flex items-start justify-between"><h2 className="text-lg font-medium">Your meeting&apos;s ready</h2>
         <button onClick={onClose} aria-label="Close" className="rounded-full p-1 text-white/50 hover:bg-white/10 hover:text-white"><X size={18} /></button></div>
       <p className="mt-2 text-sm text-white/60">Add people to your meeting or share the link. People on the invite list can join directly.</p>
-      <button onClick={async () => { if (navigator.share) { try { await navigator.share({ title: "Join my Veyra meeting", url: link }); return; } catch { } } await copyLink(); }} className="mt-4 flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"><UserPlus size={16} /> Add others</button>
+      <button onClick={() => void toggleContacts()} className="mt-4 flex items-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"><UserPlus size={16} /> Add others</button>
+
+      {showContacts && (
+        <div className="mt-2 rounded-lg bg-white/5">
+          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+            <Search size={14} className="shrink-0 text-white/40" />
+            <input
+              autoFocus
+              value={contactQuery}
+              onChange={(e) => setContactQuery(e.target.value)}
+              placeholder="Search by name or email"
+              className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {loadingContacts ? (
+              <p className="p-3 text-xs text-white/45">Loading people you&apos;ve met with before…</p>
+            ) : contacts.length === 0 ? (
+              <p className="p-3 text-xs text-white/45">No past meeting contacts yet — invite someone below and they&apos;ll show up here next time.</p>
+            ) : filteredContacts.length === 0 ? (
+              <p className="p-3 text-xs text-white/45">No one matches &quot;{contactQuery}&quot;.</p>
+            ) : (
+              filteredContacts.map((contact) => {
+                const added = inviteEmails.includes(contact.email.toLowerCase());
+                return (
+                  <button
+                    key={contact.id}
+                    onClick={() => addContactEmail(contact.email)}
+                    disabled={added}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm text-white/85 hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="block truncate font-medium">{contact.name ?? contact.email}</span>
+                      {contact.name && <span className="block truncate text-xs text-white/45">{contact.email}</span>}
+                    </span>
+                    {added ? <Check size={14} className="shrink-0 text-white/50" /> : <UserPlus size={14} className="shrink-0 text-white/40" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5"><span className="truncate text-sm text-white/85">{typeof window !== "undefined" ? window.location.host : "localhost:3000"}/room/{token}</span><button onClick={() => void copyLink()} aria-label="Copy link" className="shrink-0 text-white/60 hover:text-white">{linkCopied ? <Check size={16} /> : <Copy size={16} />}</button></div>
       <p className="mt-4 flex items-start gap-2 text-xs text-white/45"><Lock size={13} className="mt-0.5 shrink-0" />People who use the link must be admitted unless their email is on the meeting invite list.</p>
       <div className="mt-4 border-t border-white/10 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-white/35">Invite by email</p><p className="mt-1 text-xs text-white/45">Add one or more email addresses. They can join directly once they sign in with that email.</p>
@@ -146,6 +260,7 @@ function MeetingPanel({
   onSendChat: (text: string) => void;
   myUserId: number | null;
 }) {
+  const [toolsTab, setToolsTab] = useState<"tools" | "addons">("tools");
   if (!panel) return null;
 
   return (
@@ -245,52 +360,66 @@ function MeetingPanel({
           </div>
           <div className="flex-1 overflow-y-auto p-4">
             <div className="mb-4 flex gap-2 border-b border-white/10 pb-3 text-sm">
-              <span className="border-b-2 border-white px-3 pb-3 font-medium">Tools</span>
-              <span className="px-3 pb-3 text-white/45">Add-ons</span>
+              <button
+                onClick={() => setToolsTab("tools")}
+                className={toolsTab === "tools" ? "border-b-2 border-white px-3 pb-3 font-medium" : "px-3 pb-3 text-white/45 hover:text-white/70"}
+              >
+                Tools
+              </button>
+              <button
+                onClick={() => setToolsTab("addons")}
+                className={toolsTab === "addons" ? "border-b-2 border-white px-3 pb-3 font-medium" : "px-3 pb-3 text-white/45 hover:text-white/70"}
+              >
+                Add-ons
+              </button>
             </div>
-            <div className="space-y-3">
-              <button
-                onClick={() => toast.info("Speech translation needs a translation service that isn't configured yet.")}
-                className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
-              >
-                <Languages className="text-violet-300" size={21} />
-                <span className="flex-1"><strong className="block text-sm font-medium">Speech translation</strong><small className="text-white/45">Translate spoken audio</small></span>
-                <span className="text-white/35">›</span>
-              </button>
-              <button
-                onClick={timerRemaining !== null ? onStopTimer : onStartTimer}
-                className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
-              >
-                <Timer className="text-purple-300" size={21} />
-                <span className="flex-1">
-                  <strong className="block text-sm font-medium">Timer</strong>
-                  <small className="text-white/45">
-                    {timerRemaining !== null
-                      ? `${Math.floor(timerRemaining / 60)}:${String(timerRemaining % 60).padStart(2, "0")} remaining — tap to stop`
-                      : "Show a countdown timer"}
-                  </small>
-                </span>
-                <span className="text-white/35">›</span>
-              </button>
-              <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
-              <div className="grid grid-cols-2 gap-3">
+            {toolsTab === "tools" ? (
+              <div className="space-y-3">
                 <button
-                  onClick={onToggleCaptions}
-                  className={`rounded-2xl border p-4 text-left transition ${captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
-                    }`}
+                  onClick={() => toast.info("Speech translation needs a translation service that isn't configured yet.")}
+                  className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
                 >
-                  <Captions size={19} className="mb-3" />
-                  <span className="text-sm">{captionsOn ? "Captions on" : "Captions"}</span>
+                  <Languages className="text-violet-300" size={21} />
+                  <span className="flex-1"><strong className="block text-sm font-medium">Speech translation</strong><small className="text-white/45">Translate spoken audio</small></span>
+                  <span className="text-white/35">›</span>
                 </button>
                 <button
-                  onClick={onCycleLayout}
-                  className="rounded-2xl border border-white/10 p-4 text-left text-white/55 transition hover:bg-white/5"
+                  onClick={timerRemaining !== null ? onStopTimer : onStartTimer}
+                  className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
                 >
-                  <Grid3X3 size={19} className="mb-3" />
-                  <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
+                  <Timer className="text-purple-300" size={21} />
+                  <span className="flex-1">
+                    <strong className="block text-sm font-medium">Timer</strong>
+                    <small className="text-white/45">
+                      {timerRemaining !== null
+                        ? `${Math.floor(timerRemaining / 60)}:${String(timerRemaining % 60).padStart(2, "0")} remaining — tap to stop`
+                        : "Show a countdown timer"}
+                    </small>
+                  </span>
+                  <span className="text-white/35">›</span>
                 </button>
+                <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={onToggleCaptions}
+                    className={`rounded-2xl border p-4 text-left transition ${captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
+                      }`}
+                  >
+                    <Captions size={19} className="mb-3" />
+                    <span className="text-sm">{captionsOn ? "Captions on" : "Captions"}</span>
+                  </button>
+                  <button
+                    onClick={onCycleLayout}
+                    className="rounded-2xl border border-white/10 p-4 text-left text-white/55 transition hover:bg-white/5"
+                  >
+                    <Grid3X3 size={19} className="mb-3" />
+                    <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-2xl bg-[#2b2c30] p-4 text-sm text-white/55">No add-ons available yet.</div>
+            )}
           </div>
         </div>
       )}
@@ -361,6 +490,22 @@ export default function RoomPage() {
   const [captionsOn, setCaptionsOn] = useState(false);
   const [captionText, setCaptionText] = useState("");
   const [layoutMode, setLayoutMode] = useState<"auto" | "spotlight">("auto");
+  const gridAreaRef = useRef<HTMLElement | null>(null);
+  const [gridAreaSize, setGridAreaSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = gridAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      setGridAreaSize({ width, height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   const [timerRemaining, setTimerRemaining] = useState<number | null>(null);
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -786,6 +931,10 @@ export default function RoomPage() {
             // ready-card check does not depend on asynchronous React state.
             void handleJoinFromLobby(user.id);
           }
+        } else if (res.status === 404) {
+          toast.error("That meeting doesn't exist.");
+          router.push("/dashboard");
+          return;
         } else {
           setHostCheckDone(true);
         }
@@ -951,8 +1100,8 @@ export default function RoomPage() {
     toast.info(next === "spotlight" ? "Layout: Spotlight" : "Layout: Auto");
   };
 
-  const startTimer = () => {
-    const input = window.prompt("Countdown length in minutes:", "5");
+  const startTimer = async () => {
+    const input = await promptToast("Countdown length in minutes:", "5");
     if (input === null) return;
     const minutes = Number(input);
     if (!Number.isFinite(minutes) || minutes <= 0) {
@@ -1275,7 +1424,7 @@ export default function RoomPage() {
   };
 
   const handleSetPasscode = async () => {
-    const input = window.prompt(
+    const input = await promptToast(
       passcodeSet
         ? "Change the meeting passcode (leave blank to remove it):"
         : "Set a meeting passcode (at least 4 characters):",
@@ -1433,11 +1582,11 @@ export default function RoomPage() {
         </div>
       </header>
 
-      <main className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
+      <main ref={gridAreaRef} className="absolute inset-x-0 top-16 bottom-24 overflow-hidden bg-[#0f1012] px-4 py-4 sm:top-20 sm:bottom-28 sm:px-8 sm:py-6">
         {presentingStream ? (
           <>
             {/* Full-bleed shared screen — no padding, no rounding, matching Meet exactly. */}
-            <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} />
+            <VideoTile name={presentingName} cameraOn stream={presentingStream} rounded={false} fit="contain" />
             {/* Floating camera thumbnails — fixed pixel size, absolutely
                 positioned, intentionally NOT part of any flex/percentage-height
                 chain. Earlier attempts using a flex strip for this kept
@@ -1570,34 +1719,47 @@ export default function RoomPage() {
             </div>
           </div>
         ) : (
-          <div
-            className={`grid h-full w-full auto-rows-fr gap-2 p-2 sm:gap-3 sm:p-3 ${totalTiles === 2 ? "grid-cols-1 md:grid-cols-2" : totalTiles <= 4 ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-3"
-              }`}
-          >
-            <VideoTile
-              name={`${me.name ?? me.email} (You)`}
-              isHost={myRow?.isHost ?? false}
-              isMuted={!micOn}
-              cameraOn={cameraOn}
-              stream={localStream}
-              isLocal
-              mirrored
-              handRaised={handRaised}
-            />
-            {others.map((participant) => {
-              const live = liveByUserId.get(participant.userId);
+          <div className="flex h-full w-full flex-wrap content-center items-center justify-center gap-2 sm:gap-3">
+            {(() => {
+              const layout = computeVideoGrid(totalTiles, gridAreaSize.width, gridAreaSize.height);
+              // Before the first ResizeObserver tick fires, fall back to a
+              // reasonable aspect-ratio box instead of a zero-size flash.
+              const tileStyle =
+                layout.tileWidth > 0
+                  ? { width: `${layout.tileWidth}px`, height: `${layout.tileHeight}px` }
+                  : { width: "45%", aspectRatio: "16 / 9" as const };
               return (
-                <VideoTile
-                  key={participant.userId}
-                  name={participant.name}
-                  isHost={participant.isHost}
-                  isMuted={live ? !live.micOn : participant.isMuted}
-                  cameraOn={live ? live.cameraOn : false}
-                  stream={live?.stream ?? null}
-                  handRaised={live?.handRaised ?? false}
-                />
+                <>
+                  <div style={tileStyle}>
+                    <VideoTile
+                      name={`${me.name ?? me.email} (You)`}
+                      isHost={myRow?.isHost ?? false}
+                      isMuted={!micOn}
+                      cameraOn={cameraOn}
+                      stream={localStream}
+                      isLocal
+                      mirrored
+                      handRaised={handRaised}
+                    />
+                  </div>
+                  {others.map((participant) => {
+                    const live = liveByUserId.get(participant.userId);
+                    return (
+                      <div key={participant.userId} style={tileStyle}>
+                        <VideoTile
+                          name={participant.name}
+                          isHost={participant.isHost}
+                          isMuted={live ? !live.micOn : participant.isMuted}
+                          cameraOn={live ? live.cameraOn : false}
+                          stream={live?.stream ?? null}
+                          handRaised={live?.handRaised ?? false}
+                        />
+                      </div>
+                    );
+                  })}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
 

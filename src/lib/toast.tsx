@@ -119,3 +119,61 @@ export function confirmToast(message: string, confirmLabel: string): Promise<boo
     );
   });
 }
+
+/**
+ * A toast with a text input plus OK/Cancel — used in place of a native
+ * window.prompt() popup (timer length, meeting passcode). Resolves the
+ * entered string, or null if cancelled/dismissed.
+ */
+export function promptToast(message: string, defaultValue = ""): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let value = defaultValue;
+    const finish = (result: string | null, id: string) => {
+      if (settled) return;
+      settled = true;
+      hotToast.dismiss(id);
+      resolve(result);
+    };
+
+    hotToast.custom(
+      (t) => (
+        <div
+          className={`flex flex-col gap-2 rounded-lg border border-edge bg-surface px-4 py-3 text-sm text-ink shadow-lg transition-all ${
+            t.visible ? "opacity-100" : "opacity-0"
+          }`}
+          style={{ minWidth: 300, maxWidth: 420 }}
+        >
+          <span>{message}</span>
+          <input
+            autoFocus
+            defaultValue={defaultValue}
+            onChange={(e) => {
+              value = e.target.value;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") finish(value, t.id);
+              if (e.key === "Escape") finish(null, t.id);
+            }}
+            className="rounded-md border border-edge bg-surface2 px-2.5 py-1.5 text-sm text-ink outline-none"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => finish(null, t.id)}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-muted hover:bg-surface2"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => finish(value, t.id)}
+              className="rounded-md bg-accent px-2.5 py-1 text-xs font-semibold text-white hover:opacity-90"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      ),
+      { duration: Infinity },
+    );
+  });
+}

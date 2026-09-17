@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const parsed = scheduleSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Please choose a valid future date and time." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid input", details: parsed.error.flatten() }, { status: 400 });
   }
 
   const scheduledAt = new Date(parsed.data.scheduledAt);

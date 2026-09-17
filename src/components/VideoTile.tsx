@@ -30,6 +30,12 @@ interface VideoTileProps {
    *  make it unreadable) or a remote participant's camera (only correct
    *  from their own vantage point, not ours). */
   mirrored?: boolean;
+  /** "cover" (default) fills the tile and crops overflow — right for a
+   *  camera feed. "contain" fits the whole frame inside the tile without
+   *  cropping — required for a screen share, since cropping shared
+   *  content (e.g. a wide desktop into a narrow phone tile) hides part
+   *  of what's actually being presented. */
+  fit?: "cover" | "contain";
 }
 
 function initials(name: string): string {
@@ -70,6 +76,7 @@ function VideoTile({
   handRaised = false,
   rounded = true,
   mirrored = false,
+  fit = "cover",
 }: VideoTileProps) {
   const [speaking, setSpeaking] = useState(false);
 
@@ -152,7 +159,7 @@ function VideoTile({
               if (!isLocal) void el.play().catch(() => undefined);
             }
           }}
-          className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""}`}
+          className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"} ${mirrored ? "-scale-x-100" : ""}`}
         />
       ) : (
         <div

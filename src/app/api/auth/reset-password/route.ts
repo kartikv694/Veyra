@@ -19,7 +19,7 @@ import { hashPassword, verifyPassword } from "@/lib/auth";
 export const runtime = "nodejs";
 
 const schema = z.object({
-  email: z.string().email("Enter a valid email."),
+  email: z.string().email("Enter a valid email.").transform((v) => v.trim().toLowerCase()),
   code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code."),
   newPassword: z.string().min(6, "Password must be at least 6 characters."),
 });

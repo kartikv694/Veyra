@@ -29,7 +29,7 @@ export const runtime = "nodejs";
 
 const CODE_VALID_MINUTES = Number(process.env.CODE_VALID_MINUTES) || 5;
 
-const schema = z.object({ email: z.string().email("Enter a valid email.") });
+const schema = z.object({ email: z.string().email("Enter a valid email.").transform((v) => v.trim().toLowerCase()) });
 
 function generateSixDigitCode(): string {
   // crypto.randomInt is uniform (unlike Math.random-based approaches) and

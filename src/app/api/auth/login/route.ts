@@ -34,7 +34,7 @@ const LOGIN_LIMIT = 10;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 const loginSchema = z.object({
-  email: z.string().email("Must be a valid email address"),
+  email: z.string().email("Must be a valid email address").transform((v) => v.trim().toLowerCase()),
   password: z.string().min(1, "Password is required"),
 });
 

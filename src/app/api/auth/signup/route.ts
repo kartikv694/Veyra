@@ -24,7 +24,7 @@ export const runtime = "nodejs";
 
 const signupSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
-  email: z.string().email("Must be a valid email address"),
+  email: z.string().email("Must be a valid email address").transform((v) => v.trim().toLowerCase()),
   password: z.string().min(8, "Password must be at least 8 characters"),
   username: z.string().min(3).max(30).optional(),
 });

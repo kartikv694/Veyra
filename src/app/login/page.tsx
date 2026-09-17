@@ -8,9 +8,9 @@
  *
  * Wired to POST /api/auth/login. Two behaviors worth noting:
  *   - If the email isn't registered (404, reason "not_registered"), we
- *     don't just show an error — we toast it and bounce straight to
- *     /signup with the email pre-filled, since that's almost always what
- *     someone actually wants next.
+ *     show that as a plain inline error ("Email ID not found.") and stay
+ *     on this page — we don't assume the person wants to sign up and
+ *     silently redirect them there.
  *   - On success we save the session and return to /dashboard, which picks
  *     up whatever intent (create/join) the landing page stashed before
  *     sending the visitor here.
@@ -52,9 +52,7 @@ export default function LoginPage() {
 
       if (!res.ok) {
         if (data.reason === "not_registered") {
-          toast.error("No account found for that email — let's get you signed up.");
-          const next = new URLSearchParams(window.location.search).get("next");
-          router.push(`/signup?email=${encodeURIComponent(email)}${next ? `&next=${encodeURIComponent(next)}` : ""}`);
+          toast.error("Email ID not found.");
           return;
         }
         toast.error(data.error ?? "Something went wrong. Please try again.");
