@@ -9,7 +9,6 @@ import {
   Grid3X3,
   Info,
   KeyRound,
-  Languages,
   Lock,
   LockOpen,
   MessageSquare,
@@ -242,8 +241,6 @@ function MeetingPanel({
   handleInvite,
   message,
   setMessage,
-  captionsOn,
-  onToggleCaptions,
   layoutMode,
   onCycleLayout,
   maxVisibleTiles,
@@ -275,8 +272,6 @@ function MeetingPanel({
   handleInvite: () => Promise<void>;
   message: string;
   setMessage: (value: string) => void;
-  captionsOn: boolean;
-  onToggleCaptions: () => void;
   layoutMode: "auto" | "spotlight";
   onCycleLayout: () => void;
   maxVisibleTiles: number;
@@ -288,7 +283,6 @@ function MeetingPanel({
   onSendChat: (text: string) => void;
   myUserId: number | null;
 }) {
-  const [toolsTab, setToolsTab] = useState<"tools" | "addons">("tools");
   if (!panel) return null;
 
   return (
@@ -391,91 +385,55 @@ function MeetingPanel({
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="mb-4 flex gap-2 border-b border-white/10 pb-3 text-sm">
+            <div className="space-y-3">
               <button
-                onClick={() => setToolsTab("tools")}
-                className={toolsTab === "tools" ? "border-b-2 border-white px-3 pb-3 font-medium" : "px-3 pb-3 text-white/45 hover:text-white/70"}
+                onClick={timerRemaining !== null ? onStopTimer : onStartTimer}
+                className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
               >
-                Tools
+                <Timer className="text-purple-300" size={21} />
+                <span className="flex-1">
+                  <strong className="block text-sm font-medium">Timer</strong>
+                  <small className="text-white/45">
+                    {timerRemaining !== null
+                      ? `${Math.floor(timerRemaining / 60)}:${String(timerRemaining % 60).padStart(2, "0")} remaining — tap to stop`
+                      : "Show a countdown timer"}
+                  </small>
+                </span>
+                <span className="text-white/35">›</span>
               </button>
+              <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
               <button
-                onClick={() => setToolsTab("addons")}
-                className={toolsTab === "addons" ? "border-b-2 border-white px-3 pb-3 font-medium" : "px-3 pb-3 text-white/45 hover:text-white/70"}
+                onClick={onCycleLayout}
+                className="flex w-full items-center gap-4 rounded-2xl border border-white/10 p-4 text-left text-white/55 transition hover:bg-white/5"
               >
-                Add-ons
+                <Grid3X3 size={19} />
+                <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
               </button>
-            </div>
-            {toolsTab === "tools" ? (
-              <div className="space-y-3">
-                <button
-                  onClick={() => toast.info("Speech translation needs a translation service that isn't configured yet.")}
-                  className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
-                >
-                  <Languages className="text-violet-300" size={21} />
-                  <span className="flex-1"><strong className="block text-sm font-medium">Speech translation</strong><small className="text-white/45">Translate spoken audio</small></span>
-                  <span className="text-white/35">›</span>
-                </button>
-                <button
-                  onClick={timerRemaining !== null ? onStopTimer : onStartTimer}
-                  className="flex w-full items-center gap-4 rounded-2xl bg-[#2b2c30] p-4 text-left transition hover:bg-[#34353a]"
-                >
-                  <Timer className="text-purple-300" size={21} />
-                  <span className="flex-1">
-                    <strong className="block text-sm font-medium">Timer</strong>
-                    <small className="text-white/45">
-                      {timerRemaining !== null
-                        ? `${Math.floor(timerRemaining / 60)}:${String(timerRemaining % 60).padStart(2, "0")} remaining — tap to stop`
-                        : "Show a countdown timer"}
-                    </small>
-                  </span>
-                  <span className="text-white/35">›</span>
-                </button>
-                <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={onToggleCaptions}
-                    className={`rounded-2xl border p-4 text-left transition ${captionsOn ? "border-accent bg-accent/10 text-white" : "border-white/10 text-white/55 hover:bg-white/5"
-                      }`}
-                  >
-                    <Captions size={19} className="mb-3" />
-                    <span className="text-sm">{captionsOn ? "Captions on" : "Captions"}</span>
-                  </button>
-                  <button
-                    onClick={onCycleLayout}
-                    className="rounded-2xl border border-white/10 p-4 text-left text-white/55 transition hover:bg-white/5"
-                  >
-                    <Grid3X3 size={19} className="mb-3" />
-                    <span className="text-sm">Layout: {layoutMode === "auto" ? "Auto" : "Spotlight"}</span>
-                  </button>
-                </div>
-                {layoutMode === "auto" && (
-                  <div className="pt-1">
-                    <p className="text-xs text-white/45">
-                      {viewerIsHost
-                        ? "Tiles per screen — fewer, bigger tiles or more, smaller ones. Anyone past this count stays connected, just off-screen. Applies to everyone."
-                        : "Tiles per screen — set by the host for everyone."}
-                    </p>
-                    <div className="mt-2 flex gap-2">
-                      {TILE_COUNT_OPTIONS.map((count) => (
-                        <button
-                          key={count}
-                          onClick={() => viewerIsHost && onChangeMaxVisibleTiles(count)}
-                          disabled={!viewerIsHost}
-                          className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${maxVisibleTiles === count
-                            ? "border-accent bg-accent/10 text-white"
-                            : "border-white/10 text-white/55 hover:bg-white/5"
-                            } ${viewerIsHost ? "" : "cursor-default opacity-60 hover:bg-transparent"}`}
-                        >
-                          {count}
-                        </button>
-                      ))}
-                    </div>
+              {layoutMode === "auto" && (
+                <div className="pt-1">
+                  <p className="text-xs text-white/45">
+                    {viewerIsHost
+                      ? "Tiles per screen — fewer, bigger tiles or more, smaller ones. Anyone past this count stays connected, just off-screen. Applies to everyone."
+                      : "Tiles per screen — set by the host for everyone."}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    {TILE_COUNT_OPTIONS.map((count) => (
+                      <button
+                        key={count}
+                        onClick={() => viewerIsHost && onChangeMaxVisibleTiles(count)}
+                        disabled={!viewerIsHost}
+                        className={`flex-1 rounded-lg border py-2 text-sm font-medium transition ${maxVisibleTiles === count
+                          ? "border-accent bg-accent/10 text-white"
+                          : "border-white/10 text-white/55 hover:bg-white/5"
+                          } ${viewerIsHost ? "" : "cursor-default opacity-60 hover:bg-transparent"}`}
+                      >
+                        {count}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-2xl bg-[#2b2c30] p-4 text-sm text-white/55">No add-ons available yet.</div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1904,12 +1862,16 @@ export default function RoomPage() {
               </button>
             </>
           )}
+          {/* Desktop already has a dedicated captions button in the
+              control bar itself — this stays mobile-only so it's not a
+              duplicate there, same reasoning as hand-raise/chat/tools
+              below: below sm, this menu is the only way to reach it. */}
           <button
             onClick={() => {
               toggleCaptions();
               setMenuOpen(false);
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm hover:bg-white/10 sm:hidden"
           >
             <Captions size={18} />
             <span>{captionsOn ? "Turn off captions" : "Turn on captions"}</span>
@@ -2071,8 +2033,6 @@ export default function RoomPage() {
         handleInvite={handleInvite}
         message={message}
         setMessage={setMessage}
-        captionsOn={captionsOn}
-        onToggleCaptions={toggleCaptions}
         layoutMode={layoutMode}
         onCycleLayout={cycleLayout}
         maxVisibleTiles={maxVisibleTiles}

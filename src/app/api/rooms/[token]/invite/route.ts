@@ -74,9 +74,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   // server-side, and the response tells the caller which addresses (if
   // any) didn't actually go out, instead of unconditionally claiming
   // success.
+  // Deliberately NOT passing scheduledAt/timeZone here — this route is for
+  // inviting someone into a meeting that already exists (often already
+  // under way), not the original scheduling action. The meeting's
+  // scheduledAt could be hours in the past by the time a host reaches for
+  // "Add others," so showing it here would read as "scheduled for
+  // <stale time>" instead of the immediate "invited you to a meeting"
+  // this actually is. The schedule route (POST /api/rooms/schedule) is
+  // the one place that legitimately shows a future scheduled time.
   const meetingUrl = buildRoomLink(meeting.token);
   const results = await Promise.allSettled(
-    emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt: meeting.scheduledAt, timeZone: meeting.timeZone })),
+    emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl })),
   );
   const failedEmails: string[] = [];
   results.forEach((result, i) => {

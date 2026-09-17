@@ -12,7 +12,6 @@ import { createPortal } from "react-dom";
 import {
   AudioLines,
   Captions,
-  ChevronUp,
   Hand,
   Mic,
   MicOff,
@@ -142,14 +141,6 @@ export function ControlBar({
           >
             {micOn ? <Mic size={21} /> : <MicOff size={21} />}
           </ControlButton>
-
-          <button
-            aria-label="Microphone settings"
-            title="Microphone settings"
-            className="hidden h-12 w-7 items-center justify-center rounded-full text-white/75 hover:bg-white/10 sm:flex"
-          >
-            <ChevronUp size={16} />
-          </button>
 
           <ControlButton
             onClick={onToggleCamera}
