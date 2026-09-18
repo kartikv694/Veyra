@@ -569,6 +569,7 @@ export default function RoomPage() {
   // reads it.
   const [autoEndAt, setAutoEndAt] = useState<Date | null>(null);
   const [autoEndTriggered, setAutoEndTriggered] = useState(false);
+  const [durationWarningShown, setDurationWarningShown] = useState(false);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [showShareWarning, setShowShareWarning] = useState(false);
@@ -1700,6 +1701,30 @@ export default function RoomPage() {
     );
     return () => window.clearTimeout(id);
   }, [autoEndAt, joined, autoEndTriggered, myRow?.isHost, token, exitMeeting]);
+
+  // Warns the host 5 minutes before the duration limit ends the meeting
+  // — host-only, same reasoning as the auto-end effect above (every
+  // participant computes the same autoEndAt, but only the host needs
+  // the heads-up, since only the host's screen is where the countdown
+  // actually matters). If there's already less than 5 minutes left by
+  // the time this schedules (e.g. the host reconnects close to the
+  // deadline), skip the warning entirely rather than firing it
+  // immediately right before the meeting ends anyway — the end itself
+  // still happens on schedule regardless.
+  useEffect(() => {
+    if (!autoEndAt || !joined || durationWarningShown || !myRow?.isHost) return;
+    const warnAt = autoEndAt.getTime() - 5 * 60_000;
+    const remaining = warnAt - Date.now();
+    if (remaining <= 0) return;
+    const id = window.setTimeout(() => {
+      setDurationWarningShown(true);
+      // Longer than the default toast duration (3.5s) — this is worth
+      // actually noticing, not something to catch out of the corner of
+      // an eye and miss.
+      toast.warning("This meeting will end automatically in 5 minutes (time limit reached).", 10000);
+    }, remaining);
+    return () => window.clearTimeout(id);
+  }, [autoEndAt, joined, durationWarningShown, myRow?.isHost]);
 
   const others = participants.filter((participant) => participant.userId !== me?.id && !participant.leftAt);
   const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);

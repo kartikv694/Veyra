@@ -63,7 +63,7 @@ export const toast = {
   success: (message: string) => show("success", message),
   error: (message: string) => show("error", message),
   info: (message: string) => show("info", message),
-  warning: (message: string) => show("warning", message),
+  warning: (message: string, durationMs?: number) => show("warning", message, durationMs),
   dismiss: hotToast.dismiss,
 };
 
