@@ -14,6 +14,12 @@ const scheduleSchema = z.object({
   // Intl.DateTimeFormat().resolvedOptions().timeZone — see the
   // Meeting.timeZone schema comment for why this needs to be stored.
   timeZone: z.string().max(100).optional(),
+  // Optional display name — see the Meeting.title schema comment.
+  title: z.string().trim().max(200).optional(),
+  // Optional auto-end time limit in minutes — see the
+  // Meeting.durationMinutes schema comment. Bounded to a sane range (1
+  // minute to 24 hours) rather than trusting an arbitrary client number.
+  durationMinutes: z.number().int().min(1).max(1440).optional(),
 });
 
 /** Creates a future meeting, optionally adds email addresses to its invite
@@ -42,10 +48,12 @@ export async function POST(req: NextRequest) {
 
   const token = await createUniqueRoomToken();
   const timeZone = parsed.data.timeZone ?? null;
-  const rows = await prisma.$queryRaw<Array<{ id: number; token: string; createdAt: Date; hostId: number; scheduledAt: Date; timeZone: string | null }>>`
-    INSERT INTO "Meeting" ("token", "hostId", "createdAt", "updatedAt", "scheduledAt", "timeZone")
-    VALUES (${token}, ${auth.sub}, NOW(), NOW(), ${scheduledAt}, ${timeZone})
-    RETURNING "id", "token", "createdAt", "hostId", "scheduledAt", "timeZone"
+  const title = parsed.data.title || null;
+  const durationMinutes = parsed.data.durationMinutes ?? null;
+  const rows = await prisma.$queryRaw<Array<{ id: number; token: string; createdAt: Date; hostId: number; scheduledAt: Date; timeZone: string | null; title: string | null; durationMinutes: number | null }>>`
+    INSERT INTO "Meeting" ("token", "hostId", "createdAt", "updatedAt", "scheduledAt", "timeZone", "title", "durationMinutes")
+    VALUES (${token}, ${auth.sub}, NOW(), NOW(), ${scheduledAt}, ${timeZone}, ${title}, ${durationMinutes})
+    RETURNING "id", "token", "createdAt", "hostId", "scheduledAt", "timeZone", "title", "durationMinutes"
   `;
   const meeting = rows[0];
 
@@ -72,7 +80,7 @@ export async function POST(req: NextRequest) {
   const failedEmails: string[] = [];
   if (emails.length) {
     const results = await Promise.allSettled(
-      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt, timeZone: meeting.timeZone })),
+      emails.map((email) => sendMeetingInviteEmail({ to: email, hostName, hostEmail: host?.email, meetingUrl, scheduledAt, timeZone: meeting.timeZone, title: meeting.title })),
     );
     results.forEach((result, i) => {
       if (result.status === "rejected") {
@@ -90,6 +98,8 @@ export async function POST(req: NextRequest) {
       createdAt: meeting.createdAt,
       hostId: meeting.hostId,
       scheduledAt: meeting.scheduledAt,
+      title: meeting.title,
+      durationMinutes: meeting.durationMinutes,
       invited: emails,
     },
     emailsFailed: failedEmails.length > 0 ? failedEmails : undefined,

@@ -129,18 +129,23 @@ export async function sendMeetingInviteEmail(args: {
    *  (UTC on Vercel), which silently renders the right instant as the
    *  wrong wall-clock time for everyone reading the email. */
   timeZone?: string | null;
+  /** Optional display name for the meeting (e.g. "Weekly design sync") —
+   *  see the Meeting.title schema comment. Falls back to the generic
+   *  "a Veyra meeting" wording when not set. */
+  title?: string | null;
 }) {
   const when = args.scheduledAt ? formatScheduledTime(args.scheduledAt, args.timeZone) : "now";
+  const meetingLabel = args.title ? `"${args.title}"` : "a Veyra meeting";
 
-  const subject = args.scheduledAt ? `${args.hostName} scheduled a Veyra meeting` : `${args.hostName} invited you to a Veyra meeting`;
+  const subject = args.scheduledAt ? `${args.hostName} scheduled ${meetingLabel}` : `${args.hostName} invited you to ${meetingLabel}`;
   const text = args.scheduledAt
-    ? `${args.hostName} invited you to a Veyra meeting scheduled for ${when}.\n\nJoin the meeting: ${args.meetingUrl}`
-    : `${args.hostName} invited you to a Veyra meeting.\n\nJoin the meeting: ${args.meetingUrl}`;
+    ? `${args.hostName} invited you to ${meetingLabel}, scheduled for ${when}.\n\nJoin the meeting: ${args.meetingUrl}`
+    : `${args.hostName} invited you to ${meetingLabel}.\n\nJoin the meeting: ${args.meetingUrl}`;
 
   const html = `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#202124">
       <h2>${escapeHtml(subject)}</h2>
-      <p>${escapeHtml(args.hostName)} invited you to a Veyra meeting.</p>
+      <p>${escapeHtml(args.hostName)} invited you to ${args.title ? `<strong>${escapeHtml(args.title)}</strong>` : "a Veyra meeting"}.</p>
       ${args.scheduledAt ? `<p><strong>Scheduled for:</strong> ${escapeHtml(when)}</p>` : ""}
       <p><a href="${escapeHtml(args.meetingUrl)}">${escapeHtml(args.meetingUrl)}</a></p>
       <p>Open the link to view the meeting and join when the host starts it.</p>

@@ -26,6 +26,13 @@
  * outright — even an invited email — since locking is meant as an absolute
  * "no new joins right now". It never affects returning participants.
  *
+ * A meeting link nobody has used in MEETING_EXPIRY_MS (see
+ * src/lib/meeting-expiry.ts) auto-expires on the next join attempt — the
+ * meeting is closed out right then (same as an explicit host end) and the
+ * request is rejected. This is what stops an abandoned meeting (host left
+ * without ending it, nobody ever came back) from having a permanently
+ * valid link.
+ *
  * Host identity itself is untouched by any of this — `Meeting.hostId`
  * never changes here. See /api/rooms/leave for why.
  *
@@ -39,7 +46,7 @@
  *   401  { error }           — missing/invalid auth token
  *   403  { error }           — meeting is locked
  *   404  { error }           — no meeting with that token
- *   410  { error }           — meeting has already ended
+ *   410  { error }           — meeting has already ended, or just expired from disuse
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -47,6 +54,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, unauthorized } from "@/lib/auth";
 import { buildRoomLink } from "@/lib/room-code";
 import { emitToUser } from "@/lib/socket-emitters";
+import { isMeetingExpired } from "@/lib/meeting-expiry";
 
 export const runtime = "nodejs";
 
@@ -73,10 +81,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No meeting found with that room code." }, { status: 404 });
   }
 
-  const scheduledRows = await prisma.$queryRaw<Array<{ scheduledAt: Date | null }>>`
-    SELECT "scheduledAt" FROM "Meeting" WHERE "id" = ${meeting.id}
+  const metaRows = await prisma.$queryRaw<Array<{ scheduledAt: Date | null; lastActivityAt: Date }>>`
+    SELECT "scheduledAt", "lastActivityAt" FROM "Meeting" WHERE "id" = ${meeting.id}
   `;
-  const scheduledAt = scheduledRows[0]?.scheduledAt ?? null;
+  const scheduledAt = metaRows[0]?.scheduledAt ?? null;
+  const lastActivityAt = metaRows[0]?.lastActivityAt ?? meeting.createdAt;
   if (scheduledAt && scheduledAt.getTime() > Date.now()) {
     return NextResponse.json(
       { error: `This meeting is scheduled for ${scheduledAt.toLocaleString()}.` },
@@ -85,6 +94,21 @@ export async function POST(req: NextRequest) {
   }
   if (meeting.endAt) {
     return NextResponse.json({ error: "This meeting has already ended." }, { status: 410 });
+  }
+
+  // A link nobody has used in MEETING_EXPIRY_MS auto-expires — see the
+  // Meeting.lastActivityAt schema comment. Closes it out exactly like an
+  // explicit host end (endAt, active participants marked left, chat
+  // cleared) so every other "meeting is over" code path treats it
+  // identically, rather than needing a separate "expired" state.
+  if (isMeetingExpired({ endAt: meeting.endAt, scheduledAt, lastActivityAt })) {
+    await prisma.$transaction(async (tx) => {
+      const endAt = new Date();
+      await tx.meeting.update({ where: { id: meeting.id }, data: { endAt } });
+      await tx.participants.updateMany({ where: { meetingId: meeting.id, leftAt: null }, data: { leftAt: endAt } });
+      await tx.chatMessage.deleteMany({ where: { meetingId: meeting.id } });
+    });
+    return NextResponse.json({ error: "This meeting link has expired." }, { status: 410 });
   }
 
   const existingParticipant = await prisma.participants.findUnique({
@@ -141,6 +165,13 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // Resets the auto-expiry clock — this join IS the "activity" that
+  // proves the link is still in use. Raw SQL since lastActivityAt is a
+  // newer column the locally generated client may not know about yet on
+  // some checkouts (same defensive pattern as the scheduledAt query
+  // above) — a plain UPDATE doesn't depend on that.
+  await prisma.$executeRaw`UPDATE "Meeting" SET "lastActivityAt" = NOW() WHERE "id" = ${meeting.id}`;
+
   // Clear any resolved/pending request now that they're actually in —
   // keeps GET .../join-requests from showing a stale entry for someone
   // who's since been let in some other way (e.g. the host invited them
@@ -178,6 +209,8 @@ export async function POST(req: NextRequest) {
       hostId: meeting.hostId,
       locked: meeting.locked,
       passcodeSet: meeting.passcode !== null,
+      title: meeting.title,
+      durationMinutes: meeting.durationMinutes,
     },
     participant: {
       id: participant.id,

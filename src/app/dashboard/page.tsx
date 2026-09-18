@@ -42,6 +42,8 @@ interface MeetingSummary {
   isHost: boolean;
   participantCount: number;
   scheduledAt: string | null;
+  title: string | null;
+  durationMinutes: number | null;
 }
 
 /** Reads the intent set by the landing page, checking the URL first (the
@@ -68,10 +70,55 @@ export default function DashboardPage() {
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [meetingsLoading, setMeetingsLoading] = useState(true);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState("");
   const [scheduleDateTime, setScheduleDateTime] = useState("");
   const [scheduleEmails, setScheduleEmails] = useState("");
+  const [durationEnabled, setDurationEnabled] = useState(false);
+  const [scheduleDuration, setScheduleDuration] = useState(60);
   const [scheduling, setScheduling] = useState(false);
+  const [contacts, setContacts] = useState<{ id: number; name: string | null; email: string }[]>([]);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [showEmailSuggestions, setShowEmailSuggestions] = useState(false);
   const joinInputRef = useRef<HTMLInputElement>(null);
+
+  // Loads past contacts once per modal session (not on every keystroke) so
+  // the invite-emails field can suggest people already met in a past
+  // meeting — same /api/contacts source as the in-room "Add others" card.
+  useEffect(() => {
+    if (!scheduleOpen || contactsLoaded) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/contacts", { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) setContacts(data.contacts ?? []);
+      } catch {
+        // Non-critical — typing the email manually still works fine.
+      } finally {
+        setContactsLoaded(true);
+      }
+    })();
+  }, [scheduleOpen, contactsLoaded]);
+
+  // The comma/newline-separated textarea's "current" token is whatever
+  // comes after the last separator — that's what gets matched against
+  // contacts and replaced when a suggestion is picked, so picking one
+  // completes the in-progress email instead of appending a duplicate.
+  const emailTokens = scheduleEmails.split(/[,\n]/);
+  const currentEmailToken = emailTokens[emailTokens.length - 1].trim().toLowerCase();
+  const alreadyEnteredEmails = emailTokens.slice(0, -1).map((t) => t.trim().toLowerCase()).filter(Boolean);
+  const emailSuggestions = currentEmailToken
+    ? contacts
+        .filter((c) => !alreadyEnteredEmails.includes(c.email.toLowerCase()))
+        .filter((c) => c.email.toLowerCase().includes(currentEmailToken) || (c.name ?? "").toLowerCase().includes(currentEmailToken))
+        .slice(0, 5)
+    : [];
+
+  const applyEmailSuggestion = (email: string) => {
+    const tokens = scheduleEmails.split(/[,\n]/);
+    tokens[tokens.length - 1] = email;
+    setScheduleEmails(tokens.map((t) => t.trim()).filter(Boolean).join(", ") + ", ");
+    setShowEmailSuggestions(false);
+  };
 
   const loadMeetings = async () => {
     try {
@@ -129,6 +176,8 @@ export default function DashboardPage() {
           scheduledAt: scheduledAt.toISOString(),
           emails,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          title: scheduleTitle.trim() || undefined,
+          durationMinutes: durationEnabled ? scheduleDuration : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -138,8 +187,11 @@ export default function DashboardPage() {
       }
       toast.success("Meeting scheduled.");
       setScheduleOpen(false);
+      setScheduleTitle("");
       setScheduleDateTime("");
       setScheduleEmails("");
+      setDurationEnabled(false);
+      setScheduleDuration(60);
       await loadMeetings();
     } catch {
       toast.error("Couldn't reach the server. Check your connection and try again.");
@@ -311,7 +363,7 @@ export default function DashboardPage() {
               {meetings.map((m) => (
                 <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                   <div className="min-w-0">
-                    <p className="truncate font-medium">{m.token}</p>
+                    <p className="truncate font-medium">{m.title || m.token}</p>
                     <p className="text-muted">
                       {m.scheduledAt ? `Scheduled for ${new Date(m.scheduledAt).toLocaleString()}` : `${m.isHost ? "You hosted" : "You joined"} · ${m.participantCount} participant${m.participantCount === 1 ? "" : "s"}`}{m.endAt ? " · ended" : ""}
                     </p>
@@ -334,7 +386,7 @@ export default function DashboardPage() {
 
         {scheduleOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-            <form onSubmit={handleScheduleMeeting} className="w-full max-w-md rounded-2xl border border-edge bg-surface p-6 shadow-2xl">
+            <form onSubmit={handleScheduleMeeting} className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-edge bg-surface p-6 shadow-2xl">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="font-display text-xl font-semibold">Schedule meeting</h2>
@@ -344,7 +396,17 @@ export default function DashboardPage() {
                   <X size={18} />
                 </button>
               </div>
-              <label className="mt-5 block text-sm font-medium">Date and time
+              <label className="mt-5 block text-sm font-medium">Meeting title <span className="font-normal text-muted">(optional)</span>
+                <input
+                  type="text"
+                  value={scheduleTitle}
+                  onChange={(e) => setScheduleTitle(e.target.value)}
+                  placeholder="e.g. Weekly design sync"
+                  maxLength={200}
+                  className="mt-2 w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                />
+              </label>
+              <label className="mt-4 block text-sm font-medium">Date and time
                 <input
                   type="datetime-local"
                   required
@@ -354,15 +416,77 @@ export default function DashboardPage() {
                   className="mt-2 w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
                 />
               </label>
-              <label className="mt-4 block text-sm font-medium">Invite emails <span className="font-normal text-muted">(optional)</span>
-                <textarea
-                  value={scheduleEmails}
-                  onChange={(e) => setScheduleEmails(e.target.value)}
-                  placeholder="name@example.com, another@example.com"
-                  rows={3}
-                  className="mt-2 w-full resize-none rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
-                />
-              </label>
+
+              <div className="mt-4 flex items-center justify-between">
+                <span className="text-sm font-medium">Set a time limit</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={durationEnabled}
+                  onClick={() => setDurationEnabled((v) => !v)}
+                  className={`flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors ${durationEnabled ? "justify-end bg-accent" : "justify-start border border-edge bg-surface2"
+                    }`}
+                >
+                  <span className="h-5 w-5 rounded-full bg-white shadow" />
+                </button>
+              </div>
+              {durationEnabled && (
+                <label className="mt-2 block text-sm text-muted">The meeting ends automatically after
+                  <select
+                    value={scheduleDuration}
+                    onChange={(e) => setScheduleDuration(Number(e.target.value))}
+                    className="mt-2 w-full rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                  >
+                    <option value={15}>15 minutes</option>
+                    <option value={30}>30 minutes</option>
+                    <option value={45}>45 minutes</option>
+                    <option value={60}>1 hour</option>
+                    <option value={90}>1.5 hours</option>
+                    <option value={120}>2 hours</option>
+                    <option value={180}>3 hours</option>
+                  </select>
+                </label>
+              )}
+
+              <div className="mt-4">
+                <label className="block text-sm font-medium">Invite emails <span className="font-normal text-muted">(optional)</span>
+                  <textarea
+                    value={scheduleEmails}
+                    onChange={(e) => setScheduleEmails(e.target.value)}
+                    onFocus={() => setShowEmailSuggestions(true)}
+                    onBlur={() => window.setTimeout(() => setShowEmailSuggestions(false), 150)}
+                    placeholder="name@example.com, another@example.com"
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-edge bg-surface2 px-3 py-2.5 text-sm outline-none focus:border-accent"
+                  />
+                </label>
+                {showEmailSuggestions && emailSuggestions.length > 0 && (
+                  // Deliberately NOT position:absolute — this modal scrolls
+                  // (overflow-y-auto), and an absolutely-positioned overlay
+                  // near the bottom of a scroll container gets clipped by
+                  // it invisible even though it's rendering and positioned
+                  // correctly. Normal flow means it just pushes the buttons
+                  // below it down instead, which the same scroll handles fine.
+                  <div className="mt-1 overflow-hidden rounded-lg border border-edge bg-surface2">
+                    {emailSuggestions.map((contact) => (
+                      // onMouseDown, not onClick — fires before the textarea's
+                      // onBlur, so the suggestion is still there to click.
+                      <button
+                        key={contact.id}
+                        type="button"
+                        onMouseDown={() => applyEmailSuggestion(contact.email)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface"
+                      >
+                        <span className="min-w-0 truncate">
+                          <span className="block truncate font-medium">{contact.name ?? contact.email}</span>
+                          {contact.name && <span className="block truncate text-xs text-muted">{contact.email}</span>}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="mt-5 flex justify-end gap-2">
                 <button type="button" onClick={() => setScheduleOpen(false)} className="rounded-lg px-4 py-2.5 text-sm font-medium text-muted hover:bg-surface2">Cancel</button>
                 <button type="submit" disabled={scheduling} className="rounded-lg bg-accent px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{scheduling ? "Scheduling..." : "Schedule meeting"}</button>

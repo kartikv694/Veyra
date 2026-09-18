@@ -777,6 +777,26 @@ export function useMeetingRoom(
     socketRef.current?.emit("peer:screen-share-state", { sharing });
   }, []);
 
+  /**
+   * Swaps the outgoing camera video track on every current peer
+   * connection via RTCRtpSender.replaceTrack — no renegotiation, no
+   * ontrack firing again on the receiving end, just different content
+   * flowing through the same already-established video subscription.
+   * This is what the virtual background feature (blur/templates) is
+   * built on: the processed canvas track replaces the raw camera track
+   * as the sender's content, matched by finding whichever sender's
+   * *current* track is the one being replaced (not just "the video
+   * sender," since a screen share can add a second video sender —
+   * matching by track reference is what keeps this from accidentally
+   * touching that one).
+   */
+  const replaceLocalVideoTrack = useCallback((oldTrack: MediaStreamTrack, newTrack: MediaStreamTrack) => {
+    Object.values(pcsRef.current).forEach((pc) => {
+      const sender = pc.getSenders().find((s) => s.track === oldTrack);
+      if (sender) void sender.replaceTrack(newTrack);
+    });
+  }, []);
+
   /** Host-only in practice (the server drops it from anyone else) —
    *  pushes the chosen "tiles per screen" setting to everyone in the
    *  room, including the host's own other tabs/devices. */
@@ -796,5 +816,6 @@ export function useMeetingRoom(
     sendReaction,
     sendChatMessage,
     broadcastLayoutSettings,
+    replaceLocalVideoTrack,
   };
 }

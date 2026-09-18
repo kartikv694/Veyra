@@ -79,17 +79,17 @@ export async function GET(req: NextRequest) {
   });
 
   // The generated Prisma client in older checkouts may not know about
-  // scheduledAt yet, so keep the compatibility query narrow: only fetch the
-  // meeting IDs already visible on this dashboard instead of scanning the
-  // entire Meeting table on every dashboard load.
+  // scheduledAt/title/durationMinutes yet, so keep the compatibility query
+  // narrow: only fetch the meeting IDs already visible on this dashboard
+  // instead of scanning the entire Meeting table on every dashboard load.
   const ids = meetings.map((m) => m.id);
   const scheduledRows = ids.length
-    ? await prisma.$queryRaw<Array<{ id: number; scheduledAt: Date | null }>>`
-        SELECT "id", "scheduledAt" FROM "Meeting"
+    ? await prisma.$queryRaw<Array<{ id: number; scheduledAt: Date | null; title: string | null; durationMinutes: number | null }>>`
+        SELECT "id", "scheduledAt", "title", "durationMinutes" FROM "Meeting"
         WHERE "id" IN (${Prisma.join(ids)})
       `
     : [];
-  const scheduledById = new Map(scheduledRows.map((row) => [row.id, row.scheduledAt]));
+  const extraById = new Map(scheduledRows.map((row) => [row.id, row]));
 
   return NextResponse.json({
     meetings: meetings.map((m) => ({
@@ -98,7 +98,9 @@ export async function GET(req: NextRequest) {
       link: buildRoomLink(m.token),
       createdAt: m.createdAt,
       endAt: m.endAt,
-      scheduledAt: scheduledById.get(m.id) ?? null,
+      scheduledAt: extraById.get(m.id)?.scheduledAt ?? null,
+      title: extraById.get(m.id)?.title ?? null,
+      durationMinutes: extraById.get(m.id)?.durationMinutes ?? null,
       isHost: m.hostId === auth.sub,
       participantCount: m._count.participants,
     })),

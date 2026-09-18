@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
+  Ban,
   Captions,
   Check,
   Copy,
+  Droplets,
   Grid3X3,
   Info,
   KeyRound,
@@ -25,6 +27,8 @@ import {
   X,
 } from "lucide-react";
 import { BrandLink } from "@/components/BrandLink";
+import { BACKGROUND_TEMPLATES, backgroundEffectsEqual, type BackgroundEffect } from "@/lib/backgroundEffectTypes";
+import type { VirtualBackgroundProcessor } from "@/lib/virtualBackground";
 import { toast, confirmToast, promptToast } from "@/lib/toast";
 import { VideoTile } from "@/components/VideoTile";
 import { ControlBar } from "@/components/ControlBar";
@@ -128,6 +132,12 @@ function ReadyMeetingCard({
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [contacts, setContacts] = useState<{ id: number; name: string | null; email: string }[]>([]);
   const [contactQuery, setContactQuery] = useState("");
+  // The actual, persisted invite list — separate from inviteEmails (the
+  // text box's current contents), because handleInvite clears the box
+  // right after a successful send. Without this, the checkmark on a
+  // contact you just invited would disappear the instant the box clears,
+  // even though they're genuinely still on the invite list.
+  const [alreadyInvitedEmails, setAlreadyInvitedEmails] = useState<Set<string>>(new Set());
 
   const inviteEmails = inviteInput.split(/[,\s]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
 
@@ -139,6 +149,19 @@ function ReadyMeetingCard({
     );
   })();
 
+  const loadInvitedEmails = async () => {
+    try {
+      const res = await fetch(`/api/rooms/${token}/invite`, { headers: authHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.invites)) {
+        setAlreadyInvitedEmails(new Set(data.invites.map((i: { email: string }) => i.email.toLowerCase())));
+      }
+    } catch {
+      // Non-critical — the checkmark just won't reflect past invites
+      // until the next successful open; inviting itself still works.
+    }
+  };
+
   const toggleContacts = async () => {
     const next = !showContacts;
     setShowContacts(next);
@@ -146,14 +169,25 @@ function ReadyMeetingCard({
     setContactQuery("");
     setLoadingContacts(true);
     try {
-      const res = await fetch("/api/contacts", { headers: authHeaders() });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) setContacts(data.contacts ?? []);
+      const [contactsRes] = await Promise.all([
+        fetch("/api/contacts", { headers: authHeaders() }),
+        loadInvitedEmails(),
+      ]);
+      const data = await contactsRes.json().catch(() => ({}));
+      if (contactsRes.ok) setContacts(data.contacts ?? []);
     } catch {
       // Non-critical — the manual "Invite by email" field below still works.
     } finally {
       setLoadingContacts(false);
     }
+  };
+
+  // Re-checks the persisted list right after a send succeeds, so a
+  // contact you just invited immediately shows the checkmark instead of
+  // waiting for the dropdown to be closed and reopened.
+  const handleInviteAndRefresh = async () => {
+    await handleInvite();
+    if (showContacts) void loadInvitedEmails();
   };
 
   const addContactEmail = (email: string) => {
@@ -190,7 +224,7 @@ function ReadyMeetingCard({
               <p className="p-3 text-xs text-white/45">No one matches &quot;{contactQuery}&quot;.</p>
             ) : (
               filteredContacts.map((contact) => {
-                const added = inviteEmails.includes(contact.email.toLowerCase());
+                const added = alreadyInvitedEmails.has(contact.email.toLowerCase()) || inviteEmails.includes(contact.email.toLowerCase());
                 return (
                   <button
                     key={contact.id}
@@ -214,7 +248,7 @@ function ReadyMeetingCard({
       <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2.5"><span className="truncate text-sm text-white/85">{typeof window !== "undefined" ? window.location.host : "localhost:3000"}/room/{token}</span><button onClick={() => void copyLink()} aria-label="Copy link" className="shrink-0 text-white/60 hover:text-white">{linkCopied ? <Check size={16} /> : <Copy size={16} />}</button></div>
       <p className="mt-4 flex items-start gap-2 text-xs text-white/45"><Lock size={13} className="mt-0.5 shrink-0" />People who use the link must be admitted unless their email is on the meeting invite list.</p>
       <div className="mt-4 border-t border-white/10 pt-4"><p className="text-xs font-semibold uppercase tracking-wider text-white/35">Invite by email</p><p className="mt-1 text-xs text-white/45">Add one or more email addresses. They can join directly once they sign in with that email.</p>
-        <div className="mt-2 flex gap-2"><input value={inviteInput} onChange={e => setInviteInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void handleInvite(); } }} placeholder="name@example.com, another@example.com" className="min-w-0 flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30" /><button onClick={() => void handleInvite()} disabled={inviting || !inviteInput.trim()} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">{inviting ? "..." : "Invite"}</button></div>
+        <div className="mt-2 flex gap-2"><input value={inviteInput} onChange={e => setInviteInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void handleInviteAndRefresh(); } }} placeholder="name@example.com, another@example.com" className="min-w-0 flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30" /><button onClick={() => void handleInviteAndRefresh()} disabled={inviting || !inviteInput.trim()} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50">{inviting ? "..." : "Invite"}</button></div>
       </div>
     </div>
   );
@@ -251,6 +285,8 @@ function MeetingPanel({
   chatMessages,
   onSendChat,
   myUserId,
+  backgroundEffect,
+  onChangeBackgroundEffect,
 }: {
   panel: Panel;
   participants: ParticipantRow[];
@@ -282,6 +318,8 @@ function MeetingPanel({
   chatMessages: { id: string; text: string; fromName: string; fromUserId: number; at: number }[];
   onSendChat: (text: string) => void;
   myUserId: number | null;
+  backgroundEffect: BackgroundEffect;
+  onChangeBackgroundEffect: (effect: BackgroundEffect) => void;
 }) {
   if (!panel) return null;
 
@@ -401,6 +439,43 @@ function MeetingPanel({
                 </span>
                 <span className="text-white/35">›</span>
               </button>
+
+              <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">Background</div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() => onChangeBackgroundEffect({ type: "none" })}
+                  aria-label="No background effect"
+                  title="None"
+                  className={`flex h-11 w-11 items-center justify-center rounded-full border-2 bg-[#2b2c30] text-white/60 transition ${backgroundEffect.type === "none" ? "border-accent" : "border-transparent hover:border-white/20"
+                    }`}
+                >
+                  <Ban size={18} />
+                </button>
+                <button
+                  onClick={() => onChangeBackgroundEffect({ type: "blur" })}
+                  aria-label="Blur background"
+                  title="Blur"
+                  className={`flex h-11 w-11 items-center justify-center rounded-full border-2 bg-[#2b2c30] text-white/70 transition ${backgroundEffect.type === "blur" ? "border-accent" : "border-transparent hover:border-white/20"
+                    }`}
+                >
+                  <Droplets size={18} />
+                </button>
+                {BACKGROUND_TEMPLATES.map((tpl) => {
+                  const active = backgroundEffect.type === "gradient" && backgroundEffectsEqual(backgroundEffect, { type: "gradient", colors: tpl.colors });
+                  return (
+                    <button
+                      key={tpl.id}
+                      onClick={() => onChangeBackgroundEffect({ type: "gradient", colors: tpl.colors })}
+                      aria-label={tpl.label}
+                      title={tpl.label}
+                      className={`h-11 w-11 rounded-full border-2 transition ${active ? "border-accent" : "border-transparent hover:border-white/20"}`}
+                      style={{ background: `linear-gradient(135deg, ${tpl.colors[0]}, ${tpl.colors[1]})` }}
+                    />
+                  );
+                })}
+              </div>
+              <p className="text-xs text-white/45">Blurs or replaces what&apos;s behind you — just for your own camera, everyone still sees you normally otherwise.</p>
+
               <div className="pt-4 text-xs font-semibold uppercase tracking-wider text-white/35">More tools</div>
               <button
                 onClick={onCycleLayout}
@@ -487,6 +562,13 @@ export default function RoomPage() {
   const [ending, setEnding] = useState(false);
   const [locked, setLocked] = useState(false);
   const [passcodeSet, setPasscodeSet] = useState(false);
+  const [meetingTitle, setMeetingTitle] = useState<string | null>(null);
+  // autoEndAt is computed once (scheduledAt ?? createdAt + durationMinutes)
+  // rather than recomputed from raw fields on every render — see the
+  // duration-check effect further down, which is the only thing that
+  // reads it.
+  const [autoEndAt, setAutoEndAt] = useState<Date | null>(null);
+  const [autoEndTriggered, setAutoEndTriggered] = useState(false);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [showShareWarning, setShowShareWarning] = useState(false);
@@ -528,11 +610,20 @@ export default function RoomPage() {
   const [now, setNow] = useState(() => new Date());
   const streamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  // The raw camera track never changes once getUserMedia resolves;
+  // activeVideoTrackRef is whichever track (raw, or the background
+  // processor's composited one) is currently in localStream and being
+  // sent to peers — see applyBackgroundEffect.
+  const rawCameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const activeVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const bgProcessorRef = useRef<VirtualBackgroundProcessor | null>(null);
+  const [backgroundEffect, setBackgroundEffect] = useState<BackgroundEffect>({ type: "none" });
 
   const exitMeeting = useCallback(
     (reason: "left" | "removed" | "ended") => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      bgProcessorRef.current?.stop();
       router.push(`/meeting-ended/${token}?reason=${reason}`);
     },
     [router, token],
@@ -659,6 +750,7 @@ export default function RoomPage() {
     sendReaction,
     sendChatMessage,
     broadcastLayoutSettings,
+    replaceLocalVideoTrack,
   } = useMeetingRoom(
     token,
     localStream,
@@ -788,6 +880,11 @@ export default function RoomPage() {
       if (data.meeting) {
         setLocked(Boolean(data.meeting.locked));
         setPasscodeSet(Boolean(data.meeting.passcodeSet));
+        setMeetingTitle(data.meeting.title ?? null);
+        if (data.meeting.durationMinutes) {
+          const startedAt = new Date(data.meeting.scheduledAt ?? data.meeting.createdAt);
+          setAutoEndAt(new Date(startedAt.getTime() + data.meeting.durationMinutes * 60_000));
+        }
       }
       const fresh = new URLSearchParams(window.location.search).get("fresh") === "1";
       if (fresh && data.meeting?.hostId === (hostUserId ?? me?.id)) {
@@ -891,6 +988,9 @@ export default function RoomPage() {
         stream.getVideoTracks().forEach((track) => (track.enabled = cameraOn));
         streamRef.current = stream;
         setLocalStream(stream);
+        const videoTrack = stream.getVideoTracks()[0] ?? null;
+        rawCameraTrackRef.current = videoTrack;
+        activeVideoTrackRef.current = videoTrack;
       } catch (err) {
         setCameraOn(false);
         setMicOn(false);
@@ -964,6 +1064,7 @@ export default function RoomPage() {
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      bgProcessorRef.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1007,6 +1108,71 @@ export default function RoomPage() {
     setCameraOn(next);
     window.localStorage.setItem("veyra:camera-pref", next ? "on" : "off");
     broadcastMediaState(micOn, next);
+  };
+
+  /**
+   * Switches the active background effect (none/blur/a gradient
+   * template). "none" reverts to the raw camera track and tears the
+   * processor down; anything else lazily creates the processor on first
+   * use and reuses it after that (switching between two non-none effects
+   * doesn't need a new track — see VirtualBackgroundProcessor.start).
+   *
+   * Every switch that actually changes which track is live updates three
+   * things together: localStream itself (so the local preview picks it
+   * up — VideoTile's addtrack listener handles the rest), every current
+   * peer connection (replaceLocalVideoTrack), and activeVideoTrackRef (so
+   * the next switch knows what it's replacing).
+   */
+  const applyBackgroundEffect = async (effect: BackgroundEffect) => {
+    const stream = streamRef.current;
+    const rawTrack = rawCameraTrackRef.current;
+    const currentTrack = activeVideoTrackRef.current;
+    if (!stream || !rawTrack || !currentTrack) return;
+
+    if (effect.type === "none") {
+      // Order matters here: swap every peer connection off the
+      // processed track FIRST, stop it only AFTER. Stopping it first
+      // (the previous order) risked the RTP sender's outgoing pipeline
+      // stalling on a track that had already ended before replaceTrack
+      // got a chance to hand it a live one — which is what froze a
+      // remote participant's view on the last blurred frame instead of
+      // it reverting to the live camera when blur was turned back off.
+      if (currentTrack !== rawTrack) {
+        stream.removeTrack(currentTrack);
+        stream.addTrack(rawTrack);
+        replaceLocalVideoTrack(currentTrack, rawTrack);
+        rawTrack.enabled = cameraOn;
+        activeVideoTrackRef.current = rawTrack;
+      }
+      bgProcessorRef.current?.stop();
+      bgProcessorRef.current = null;
+      setBackgroundEffect(effect);
+      return;
+    }
+
+    try {
+      if (!bgProcessorRef.current) {
+        // Dynamic import, not a static one at the top of the file — this
+        // is what keeps @mediapipe/tasks-vision out of the room page's
+        // normal build-time module graph, only pulled in (as its own
+        // chunk, at runtime) the first time someone actually opens a
+        // background effect, not just because the room page exists.
+        const { VirtualBackgroundProcessor } = await import("@/lib/virtualBackground");
+        bgProcessorRef.current = new VirtualBackgroundProcessor(rawTrack);
+      }
+      const processedTrack = await bgProcessorRef.current.start(effect);
+      if (currentTrack !== processedTrack) {
+        stream.removeTrack(currentTrack);
+        stream.addTrack(processedTrack);
+        replaceLocalVideoTrack(currentTrack, processedTrack);
+        processedTrack.enabled = cameraOn;
+        activeVideoTrackRef.current = processedTrack;
+      }
+      setBackgroundEffect(effect);
+    } catch (err) {
+      console.error("Failed to start background effect:", err);
+      toast.error("Couldn't start that background effect — your camera keeps working normally.");
+    }
   };
 
   const handleToggleHandRaise = () => {
@@ -1501,6 +1667,40 @@ export default function RoomPage() {
   const setActivePanel = (next: Panel) => setPanel((current) => (current === next ? null : next));
 
   const myRow = participants.find((participant) => participant.userId === me?.id);
+
+  // Auto-ends the meeting once its duration limit (if any) is reached.
+  // Host-only — every participant computes the same autoEndAt locally,
+  // but only the host is allowed to actually call the end endpoint (the
+  // API itself also enforces this; gating here just avoids every other
+  // participant firing a request that's going to 403 anyway). A single
+  // precisely-timed setTimeout rather than polling: the deadline is a
+  // known fixed point the moment autoEndAt is set, so there's nothing to
+  // repeatedly check against — just wait exactly that long.
+  useEffect(() => {
+    if (!autoEndAt || !joined || autoEndTriggered || !myRow?.isHost) return;
+    const remaining = autoEndAt.getTime() - Date.now();
+    const id = window.setTimeout(
+      () => {
+        setAutoEndTriggered(true);
+        (async () => {
+          try {
+            const res = await fetch(`/api/rooms/${token}/end`, { method: "POST", headers: authHeaders() });
+            if (res.ok) {
+              toast.info("This meeting's time limit was reached — ending for everyone.");
+              exitMeeting("ended");
+            }
+          } catch {
+            // Transient failure — the meeting just keeps running; nothing
+            // else here depends on this succeeding on the first try, and
+            // the host can still end it manually if it didn't go through.
+          }
+        })();
+      },
+      Math.max(0, remaining),
+    );
+    return () => window.clearTimeout(id);
+  }, [autoEndAt, joined, autoEndTriggered, myRow?.isHost, token, exitMeeting]);
+
   const others = participants.filter((participant) => participant.userId !== me?.id && !participant.leftAt);
   const liveByUserId = useMemo(() => new Map(peers.map((peer) => [peer.userId, peer])), [peers]);
   const totalTiles = others.length + 1;
@@ -1596,7 +1796,7 @@ export default function RoomPage() {
         <div className="flex min-w-0 items-center gap-3">
           <span className="text-sm font-medium text-white sm:text-base">{formatTime(now)}</span>
           <span className="text-white/35">|</span>
-          <span className="max-w-[180px] truncate text-sm font-medium text-white/85 sm:max-w-none">{token}</span>
+          <span className="max-w-[180px] truncate text-sm font-medium text-white/85 sm:max-w-none">{meetingTitle || token}</span>
           <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-400" : "bg-amber-400"}`} title={connected ? "Connected" : "Connecting"} />
         </div>
 
@@ -2037,6 +2237,8 @@ export default function RoomPage() {
         onCycleLayout={cycleLayout}
         maxVisibleTiles={maxVisibleTiles}
         onChangeMaxVisibleTiles={broadcastLayoutSettings}
+        backgroundEffect={backgroundEffect}
+        onChangeBackgroundEffect={(effect) => void applyBackgroundEffect(effect)}
         timerRemaining={timerRemaining}
         onStartTimer={startTimer}
         onStopTimer={stopTimer}
